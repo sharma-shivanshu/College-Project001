@@ -28,7 +28,7 @@ def extract_entities(text):
     prompt = f"Analyze this Hindi/English political article. Extract data EXACTLY matching this JSON schema. Return ONLY a valid JSON object. Do not wrap in markdown or add explanations.\nSCHEMA:\n{SCHEMA}\n\nTEXT:\n{text[:6000]}"
     try:
         completion = client.chat.completions.create(
-            model="llama-3.1-70b-versatile",
+            model="openai/gpt-oss-120b",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1,
             response_format={"type": "json_object"}
