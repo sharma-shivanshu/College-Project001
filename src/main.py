@@ -9,65 +9,66 @@ from sheets_sync import append_to_sheet
 
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "SET_ME_IN_GITHUB_SECRETS")
 
-def fetch_live_urls():
+def fetch_live_feed_data():
     """
-    Fetches the absolute latest URLs dynamically from live RSS feeds.
-    This guarantees we never process old 2-year-old articles.
+    Fetches the latest articles dynamically from RSS feeds.
+    Returns a dictionary mapping URL -> metadata {title, summary}.
     """
     print("Fetching live RSS feeds...")
-    urls = []
+    article_data = {}
     
-    # List of live RSS feeds to monitor
     feeds = [
-        "https://www.bhaskar.com/rss-feed/2322/", # Example Bhaskar UP feed
+        "https://www.bhaskar.com/rss-feed/2322/",
         "https://cms.patrika.com/blog/location/lucknow-news/feed/"
     ]
     
     for feed_url in feeds:
         try:
             parsed = feedparser.parse(feed_url)
-            for entry in parsed.entries[:20]: # Grab top 20 latest from each feed
+            for entry in parsed.entries[:30]: 
                 if hasattr(entry, 'link'):
-                    urls.append(entry.link)
+                    article_data[entry.link] = {
+                        "title": entry.get("title", ""),
+                        "summary": entry.get("summary", "")
+                    }
         except Exception as e:
             print(f"Failed to fetch feed {feed_url}: {e}")
             
-    # Fallback to homepage scraping if RSS fails (optional advanced logic)
-    return list(set(urls))
+    return article_data
 
 def run_pipeline():
-    print("Starting Political Intelligence Pipeline...")
+    print("Starting Optimized Pre-Filter Pipeline...")
     
-    # 1. Discover LIVE URLs from today
-    discovered_urls = fetch_live_urls()
-    print(f"Found {len(discovered_urls)} live articles published recently.")
-    
-    if not discovered_urls:
-        print("No URLs discovered. Exiting.")
-        return
+    # 1. Discover LIVE URLs and metadata
+    live_articles = fetch_live_feed_data()
+    print(f"Found {len(live_articles)} live articles.")
+    if not live_articles: return
     
     # 2. Deduplication (Check Supabase so we don't process old URLs)
-    new_urls = filter_existing_urls(discovered_urls)
+    new_urls = filter_existing_urls(list(live_articles.keys()))
     if not new_urls:
         print("All discovered articles have already been processed previously. Exiting cleanly.")
         return
 
     # 3. Process new URLs
     for url in new_urls:
-        print(f"\nProcessing: {url}")
+        print(f"\nEvaluating: {url}")
+        meta = live_articles[url]
         
-        # A. Scrape
+        # A. SMART PRE-FILTER (Evaluate URL, Title, and Summary BEFORE Scraping!)
+        combined_meta_text = f"{url} {meta['title']} {meta['summary']}"
+        if not is_relevant(combined_meta_text):
+            continue # Skip scraping entirely! Saves massive compute time.
+            
+        # B. Scrape Full Text (Only for articles that passed the pre-filter)
+        print("   -> Pre-filter PASSED. Initiating heavy scrape...")
         text = scrape_dainik_bhaskar(url)
         if not text or len(text) < 100:
-            print("Failed to scrape or text too short. Skipping.")
-            continue
-            
-        # B. Funnel Filter (Does it contain political keywords or pass ML?)
-        if not is_relevant(text):
-            print("Article is not politically relevant. Skipping.")
+            print("   -> Failed to scrape or text too short. Skipping.")
             continue
             
         # C. LLM Extraction
+        print("   -> Sending to Gemini for extraction...")
         extracted_data = extract_entities(text)
         if not extracted_data:
             continue
