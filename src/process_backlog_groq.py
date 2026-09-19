@@ -29,14 +29,14 @@ def run_backlog_processor():
         # 1. Update Supabase
         supabase.table("articles").update({
             "raw_json": extracted_data,
-            "activity_type": extracted_data.get("activity_type", "other"),
+            "activity_type": str(extracted_data.get("activity_type", "other")),
             "electoral_relevance": extracted_data.get("electoral_relevance", "none"),
             "summary": extracted_data.get("summary", ""),
             "processing_status": "completed"
         }).eq("article_url", url).execute()
         
         # 2. Update Google Sheets
-        row = [url, article["source"], extracted_data.get("activity_type", "other"), extracted_data.get("electoral_relevance", "none"), extracted_data.get("summary", "")]
+        row = [url, article["source"], str(extracted_data.get("activity_type", "other")), extracted_data.get("electoral_relevance", "none"), extracted_data.get("summary", "")]
         append_to_sheet(os.environ.get("SPREADSHEET_ID"), row)
         
     print("\nBacklog Processing Complete.")

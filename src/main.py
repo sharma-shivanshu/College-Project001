@@ -90,7 +90,7 @@ def run_pipeline():
         row = [
             url, 
             record["source"], 
-            record["activity_type"], 
+            str(record["activity_type"]), 
             record["electoral_relevance"], 
             record["summary"]
         ]

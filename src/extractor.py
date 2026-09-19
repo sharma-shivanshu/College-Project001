@@ -11,7 +11,7 @@ def get_groq_client():
 
 # Optimized prompt for token saving and strict JSON adherence
 SCHEMA = '''{
-  "activity_type": ["rally","statement","government_scheme","inauguration","protest","appointment","election_event","other"],
+  "activity_type": "rally|statement|government_scheme|inauguration|protest|appointment|election_event|other",
   "electoral_relevance": "high|medium|low|none",
   "actors": [{"name":"","party":"","designation":"","role":""}],
   "parties": [], "locations": [],
