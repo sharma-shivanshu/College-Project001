@@ -25,7 +25,7 @@ def fetch_live_feed_data():
     for feed_url in feeds:
         try:
             parsed = feedparser.parse(feed_url)
-            for entry in parsed.entries[:30]: 
+            for entry in parsed.entries: 
                 if hasattr(entry, 'link'):
                     article_data[entry.link] = {
                         "title": entry.get("title", ""),
