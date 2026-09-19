@@ -3,6 +3,7 @@ import time
 import random
 import feedparser
 import urllib.parse
+from datetime import datetime
 from scraper import scrape_heavy_article
 from filter_engine import is_relevant
 from extractor import extract_entities
@@ -10,7 +11,7 @@ from database import filter_existing_urls, save_article
 from sheets_sync import append_to_sheet
 
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "1MlBvANu6ePWqQSWT9GlQbG0ZhrIm8_yvGTiE1_KeztE")
-MAX_SCRAPES_PER_RUN = 250  # Allows ~6,000 scrapes a day if running hourly
+MAX_SCRAPES_PER_RUN = 250  
 
 UP_DISTRICTS = [
     "Agra", "Aligarh", "Prayagraj", "Ambedkar Nagar", "Amethi", "Amroha", "Auraiya", "Ayodhya", "Azamgarh", 
@@ -27,14 +28,11 @@ UP_DISTRICTS = [
 def fetch_google_news_for_districts():
     print("Fetching Google News aggregators for all 75 UP Districts (Last 48 hours only)...")
     article_data = {}
-    
     random.shuffle(UP_DISTRICTS)
     
     for district in UP_DISTRICTS:
-        # Added "when:2d" to strictly force Google News to only return articles from the last 48 hours
         query = urllib.parse.quote(f"{district} politics OR election OR bjp OR sp OR bsp when:2d")
         feed_url = f"https://news.google.com/rss/search?q={query}&hl=hi&gl=IN&ceid=IN:hi"
-        
         try:
             parsed = feedparser.parse(feed_url)
             for entry in parsed.entries[:20]: 
@@ -46,7 +44,6 @@ def fetch_google_news_for_districts():
                     }
         except Exception as e:
             pass 
-            
     return article_data
 
 def run_pipeline():
@@ -56,7 +53,6 @@ def run_pipeline():
     print(f"Found {len(live_articles)} highly targeted local links.")
     if not live_articles: return
     
-    # Deduplication now chunks requests to prevent Supabase crashes
     new_urls = filter_existing_urls(list(live_articles.keys()))
     print(f"Deduplication: {len(new_urls)} brand new links to evaluate.")
     if not new_urls: return
@@ -65,7 +61,6 @@ def run_pipeline():
 
     for url in new_urls:
         if scraped_count >= MAX_SCRAPES_PER_RUN:
-            print(f"\nReached MAX_SCRAPES_PER_RUN ({MAX_SCRAPES_PER_RUN}). Stopping gracefully.")
             break
 
         meta = live_articles[url]
@@ -85,7 +80,7 @@ def run_pipeline():
         scraped_count += 1
             
         source = "google_news_aggregator"
-        for s in ["bhaskar", "patrika", "news18", "zeenews", "livehindustan", "abplive", "ndtv", "jagran", "amarujala"]:
+        for s in ["bhaskar", "patrika", "news18", "zeenews", "livehindustan", "abplive", "ndtv", "jagran", "amarujala", "navbharattimes"]:
             if s in url.lower(): source = s; break
             
         record = {
@@ -99,14 +94,25 @@ def run_pipeline():
         
         save_article(record)
         
+        now = datetime.now()
+        post_date = now.strftime("%Y-%m-%d")
+        post_time = now.strftime("%H:%M:%S")
+        
+        # Polish for Google Sheets
         row = [
+            post_date,
+            post_time,
             url, 
-            record["source"], 
+            source, 
             record["activity_type"], 
             record["electoral_relevance"], 
+            str(extracted_data.get("district", "")),
+            str(extracted_data.get("constituency", "")),
+            str(extracted_data.get("local_geography", "")),
+            ", ".join(extracted_data.get("key_leaders", [])),
+            ", ".join(extracted_data.get("keywords", [])),
             record["summary"],
-            extracted_data.get("district", ""),
-            ", ".join(extracted_data.get("key_leaders", []))
+            text[:30000] # Google Sheets has a 50,000 character limit per cell, capping at 30k to be safe
         ]
         append_to_sheet(SPREADSHEET_ID, row)
         
