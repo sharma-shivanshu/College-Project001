@@ -1,27 +1,34 @@
 import os
 import json
+import time
 import google.generativeai as genai
 
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+# Gemini 1.5 Flash is highly cost-effective and fast
 model = genai.GenerativeModel('gemini-1.5-flash')
 
-SCHEMA = '''
-{
+# Optimized prompt for token saving and strict JSON adherence
+SCHEMA = '''{
   "activity_type": ["rally","statement","government_scheme","inauguration","protest","appointment","election_event","other"],
   "electoral_relevance": "high|medium|low|none",
   "actors": [{"name":"","party":"","designation":"","role":""}],
-  "parties": [], "constituencies": [], "locations": [],
+  "parties": [], "locations": [],
   "event_date": "YYYY-MM-DD|null",
-  "key_claims": [], "summary": ""
-}
-'''
+  "summary": "1 sentence max"
+}'''
 
 def extract_entities(text):
-    prompt = f"Extract the following structured data from this political news article. Return ONLY valid JSON matching this schema:\n{SCHEMA}\n\nArticle Text:\n{text[:8000]}"
+    prompt = f"Analyze this Hindi/English political article. Extract data EXACTLY matching this JSON schema. No markdown, no explanations, just raw JSON.\nSCHEMA:\n{SCHEMA}\n\nTEXT:\n{text[:6000]}"
     try:
         response = model.generate_content(prompt)
-        result = response.text.replace('```json', '').replace('```', '').strip()
-        return json.loads(result)
+        raw = response.text.replace('```json', '').replace('```', '').strip()
+        parsed = json.loads(raw)
+        
+        # Enforce rate limits: Free tier is 15 RPM (1 request every 4 seconds)
+        time.sleep(4.5) 
+        
+        return parsed
     except Exception as e:
         print(f"Gemini Extraction Failed: {e}")
+        time.sleep(5) # Cooldown on failure
         return None
