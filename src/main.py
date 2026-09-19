@@ -25,20 +25,19 @@ UP_DISTRICTS = [
 ]
 
 def fetch_google_news_for_districts():
-    print("Fetching Google News aggregators for all 75 UP Districts...")
+    print("Fetching Google News aggregators for all 75 UP Districts (Last 48 hours only)...")
     article_data = {}
     
-    # Shuffle districts so we don't always hit the same ones first if we reach max limit
     random.shuffle(UP_DISTRICTS)
     
     for district in UP_DISTRICTS:
-        # Search query guarantees massive coverage of Dainik Bhaskar, Hindustan, Jagran, etc. specifically for this district
-        query = urllib.parse.quote(f"{district} politics OR election OR bjp OR sp OR bsp")
+        # Added "when:2d" to strictly force Google News to only return articles from the last 48 hours
+        query = urllib.parse.quote(f"{district} politics OR election OR bjp OR sp OR bsp when:2d")
         feed_url = f"https://news.google.com/rss/search?q={query}&hl=hi&gl=IN&ceid=IN:hi"
         
         try:
             parsed = feedparser.parse(feed_url)
-            for entry in parsed.entries[:20]: # Grab top 20 most relevant per district per hour
+            for entry in parsed.entries[:20]: 
                 if hasattr(entry, 'link'):
                     article_data[entry.link] = {
                         "title": entry.get("title", ""),
@@ -57,6 +56,7 @@ def run_pipeline():
     print(f"Found {len(live_articles)} highly targeted local links.")
     if not live_articles: return
     
+    # Deduplication now chunks requests to prevent Supabase crashes
     new_urls = filter_existing_urls(list(live_articles.keys()))
     print(f"Deduplication: {len(new_urls)} brand new links to evaluate.")
     if not new_urls: return
@@ -73,7 +73,6 @@ def run_pipeline():
         if not is_relevant(combined_meta_text):
             continue 
             
-        # Fast scraping with Trafilatura + Playwright Fallback
         text = scrape_heavy_article(url)
         if not text or len(text) < 50:
             continue
