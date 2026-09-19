@@ -1,6 +1,6 @@
 playwright==1.42.0
 playwright-stealth==1.0.6
-google-generativeai==0.4.0
+google-generativeai>=0.7.0
 supabase>=2.3.0
 gspread==6.0.0
 oauth2client==4.1.3
