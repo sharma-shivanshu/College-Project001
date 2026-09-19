@@ -25,7 +25,7 @@ def filter_existing_urls(urls):
         existing_urls = set(row["article_url"] for row in response.data)
         
         # Return only the URLs that are completely new
-        new_urls = [url for url in urls if url not fallback_in existing_urls]
+        new_urls = [url for url in urls if url not in existing_urls]
         print(f"Deduplication: {len(urls)} total -> {len(new_urls)} new articles.")
         return new_urls
     except Exception as e:
