@@ -9,26 +9,30 @@ USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
 ]
 
+def clean_extracted_text(raw_text):
+    # Remove javascript blobs, JSON arrays, and excessive whitespace
+    raw_text = re.sub(r'\{.*?\}', '', raw_text)
+    raw_text = re.sub(r'\[.*?\]', '', raw_text)
+    raw_text = re.sub(r'function\s*\(.*?\)\s*\{.*?\}', '', raw_text)
+    raw_text = re.sub(r'\s+', ' ', raw_text)
+    return raw_text.strip()
+
 def scrape_heavy_article(url):
-    """
-    Advanced Scraper: Uses Trafilatura for lightning-fast parsing. 
-    If blocked by Cloudflare, falls back to Playwright Stealth.
-    """
     print(f"Scraping: {url}")
+    text_content = ""
     
-    # 1. TRAFILATURA (Primary: Fast & Accurate)
+    # 1. TRAFILATURA 
     try:
         downloaded = trafilatura.fetch_url(url)
         if downloaded:
             text = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
             if text and len(text) > 100:
                 print("   -> (Trafilatura Success)")
-                return text.strip()
+                return clean_extracted_text(text)
     except Exception as e:
-        pass # Fallback to Playwright
+        pass 
         
-    # 2. PLAYWRIGHT (Fallback: Stealth for Cloudflare/WAF)
-    text_content = ""
+    # 2. PLAYWRIGHT
     try:
         print("   -> Trafilatura blocked. Falling back to Playwright Stealth...")
         with sync_playwright() as p:
@@ -52,18 +56,14 @@ def scrape_heavy_article(url):
             browser.close()
 
             soup = BeautifulSoup(html, "html.parser")
-            for junk in soup(['script', 'style', 'nav', 'footer', 'header', 'aside', 'iframe', 'button']):
+            # Aggressively remove gibberish sources
+            for junk in soup(['script', 'style', 'nav', 'footer', 'header', 'aside', 'iframe', 'button', 'noscript', 'meta', 'link']):
                 junk.decompose()
                 
             paragraphs = soup.find_all('p')
-            raw_text = "\n".join([p.get_text().strip() for p in paragraphs if len(p.get_text().strip()) > 20])
+            raw_text = "\n".join([p.get_text(separator=' ', strip=True) for p in paragraphs if len(p.get_text(strip=True)) > 20])
             
-            if len(raw_text) < 200:
-                body = soup.find('body')
-                if body: raw_text = body.get_text(separator=' ', strip=True)
-
-            text_content = re.sub(r'\s+', ' ', raw_text).strip()
-            
+            text_content = clean_extracted_text(raw_text)
     except Exception as e:
         print(f"   -> Playwright crashed: {e}")
 

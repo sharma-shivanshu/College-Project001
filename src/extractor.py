@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import re
 from groq import Groq
 
 def get_groq_client():
@@ -20,11 +21,21 @@ SCHEMA = '''{
   "summary": "1 sentence max"
 }'''
 
+def clean_text(text):
+    # Strip bizarre encodings and weird gibberish before sending to AI
+    text = re.sub(r'<[^>]+>', '', text)
+    text = re.sub(r'\{.*?\}', '', text) 
+    return text.strip()
+
 def extract_entities(text):
     client = get_groq_client()
     if not client: return None
         
-    prompt = f"Analyze this political article from Uttar Pradesh. Extract data EXACTLY matching this JSON schema. Return ONLY a valid JSON object.\nSCHEMA:\n{SCHEMA}\n\nTEXT:\n{text[:6000]}"
+    cleaned_text = clean_text(text)
+    # TRUNCATE TO 1500 CHARACTERS to aggressively save Groq tokens (200k/day limit)
+    truncated_text = cleaned_text[:1500] 
+    
+    prompt = f"Analyze this political article from Uttar Pradesh. Extract data EXACTLY matching this JSON schema. Return ONLY a valid JSON object.\nSCHEMA:\n{SCHEMA}\n\nTEXT:\n{truncated_text}"
     try:
         completion = client.chat.completions.create(
             model="openai/gpt-oss-120b",
@@ -34,9 +45,7 @@ def extract_entities(text):
         )
         raw = completion.choices[0].message.content.strip()
         parsed = json.loads(raw)
-        time.sleep(1) 
         return parsed
     except Exception as e:
         print(f"Groq Extraction Failed: {e}")
-        time.sleep(2)
         return None

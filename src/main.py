@@ -3,7 +3,7 @@ import time
 import random
 import feedparser
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timedelta
 from scraper import scrape_heavy_article
 from filter_engine import is_relevant
 from extractor import extract_entities
@@ -11,7 +11,7 @@ from database import filter_existing_urls, save_article
 from sheets_sync import append_to_sheet
 
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "1MlBvANu6ePWqQSWT9GlQbG0ZhrIm8_yvGTiE1_KeztE")
-MAX_SCRAPES_PER_RUN = 250  
+MAX_SCRAPES_PER_RUN = 30  # Hard cap to respect Groq's 200k Tokens Per Day limit
 
 UP_DISTRICTS = [
     "Agra", "Aligarh", "Prayagraj", "Ambedkar Nagar", "Amethi", "Amroha", "Auraiya", "Ayodhya", "Azamgarh", 
@@ -26,16 +26,25 @@ UP_DISTRICTS = [
 ]
 
 def fetch_google_news_for_districts():
-    print("Fetching Google News aggregators for all 75 UP Districts (Last 48 hours only)...")
+    print("Fetching Google News aggregators...")
     article_data = {}
     random.shuffle(UP_DISTRICTS)
     
+    # 48 hours ago timestamp
+    time_limit = time.time() - (48 * 3600)
+    
     for district in UP_DISTRICTS:
-        query = urllib.parse.quote(f"{district} politics OR election OR bjp OR sp OR bsp when:2d")
+        query = urllib.parse.quote(f"{district} politics OR election OR bjp OR sp OR bsp")
         feed_url = f"https://news.google.com/rss/search?q={query}&hl=hi&gl=IN&ceid=IN:hi"
         try:
             parsed = feedparser.parse(feed_url)
-            for entry in parsed.entries[:20]: 
+            for entry in parsed.entries[:15]: 
+                # STRICT PYTHON-LEVEL DATE FILTER (Ignore anything older than 48 hours)
+                if hasattr(entry, 'published_parsed') and entry.published_parsed:
+                    pub_time = time.mktime(entry.published_parsed)
+                    if pub_time < time_limit:
+                        continue # Drop old articles instantly
+                
                 if hasattr(entry, 'link'):
                     article_data[entry.link] = {
                         "title": entry.get("title", ""),
@@ -47,10 +56,10 @@ def fetch_google_news_for_districts():
     return article_data
 
 def run_pipeline():
-    print("Starting Mega District Intelligence Pipeline...")
+    print("Starting Optimized Pipeline...")
     
     live_articles = fetch_google_news_for_districts()
-    print(f"Found {len(live_articles)} highly targeted local links.")
+    print(f"Found {len(live_articles)} recent local links.")
     if not live_articles: return
     
     new_urls = filter_existing_urls(list(live_articles.keys()))
@@ -95,13 +104,9 @@ def run_pipeline():
         save_article(record)
         
         now = datetime.now()
-        post_date = now.strftime("%Y-%m-%d")
-        post_time = now.strftime("%H:%M:%S")
-        
-        # Polish for Google Sheets
         row = [
-            post_date,
-            post_time,
+            now.strftime("%Y-%m-%d"),
+            now.strftime("%H:%M:%S"),
             url, 
             source, 
             record["activity_type"], 
@@ -112,11 +117,11 @@ def run_pipeline():
             ", ".join(extracted_data.get("key_leaders", [])),
             ", ".join(extracted_data.get("keywords", [])),
             record["summary"],
-            text[:30000] # Google Sheets has a 50,000 character limit per cell, capping at 30k to be safe
+            text[:10000] # Cap text output to prevent sheet bloat
         ]
         append_to_sheet(SPREADSHEET_ID, row)
         
-    print(f"\nMega Pipeline complete. Processed {scraped_count} highly targeted local articles.")
+    print(f"\nPipeline complete. Processed {scraped_count} local articles.")
 
 if __name__ == "__main__":
     run_pipeline()
