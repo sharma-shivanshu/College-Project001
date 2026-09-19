@@ -1,9 +1,13 @@
 import os
 import json
 import time
-from google import genai
 
-client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+def get_gemini_client():
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        return None
+    from google import genai
+    return genai.Client(api_key=api_key)
 
 # Optimized prompt for token saving and strict JSON adherence
 SCHEMA = '''{
@@ -16,9 +20,13 @@ SCHEMA = '''{
 }'''
 
 def extract_entities(text):
+    client = get_gemini_client()
+    if not client:
+        print("Gemini API key not found. Skipping extraction.")
+        return None
+        
     prompt = f"Analyze this Hindi/English political article. Extract data EXACTLY matching this JSON schema. No markdown, no explanations, just raw JSON.\nSCHEMA:\n{SCHEMA}\n\nTEXT:\n{text[:6000]}"
     try:
-        # Upgraded to the modern API and the 2.5-flash model
         response = client.models.generate_content(
             model='gemini-3.6-flash',
             contents=prompt,
