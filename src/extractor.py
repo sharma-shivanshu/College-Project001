@@ -9,23 +9,23 @@ def get_groq_client():
         return None
     return Groq(api_key=api_key)
 
-# Optimized prompt for token saving and strict JSON adherence
+# Upgraded schema to proactively capture geospatial and entity data for the future dashboard!
 SCHEMA = '''{
   "activity_type": "rally|statement|government_scheme|inauguration|protest|appointment|election_event|other",
   "electoral_relevance": "high|medium|low|none",
-  "actors": [{"name":"","party":"","designation":"","role":""}],
-  "parties": [], "locations": [],
-  "event_date": "YYYY-MM-DD|null",
+  "district": "Name of the UP district where this occurred, or null",
+  "assembly_constituency": "Name of specific UP assembly constituency if mentioned, or null",
+  "key_leaders": ["list of major politicians mentioned"],
+  "sentiment_ruling_party": "positive|negative|neutral",
   "summary": "1 sentence max"
 }'''
 
 def extract_entities(text):
     client = get_groq_client()
     if not client:
-        print("Groq API key not found. Skipping extraction.")
         return None
         
-    prompt = f"Analyze this Hindi/English political article. Extract data EXACTLY matching this JSON schema. Return ONLY a valid JSON object. Do not wrap in markdown or add explanations.\nSCHEMA:\n{SCHEMA}\n\nTEXT:\n{text[:6000]}"
+    prompt = f"Analyze this political article from Uttar Pradesh. Extract data EXACTLY matching this JSON schema. Return ONLY a valid JSON object. Do not wrap in markdown or add explanations.\nSCHEMA:\n{SCHEMA}\n\nTEXT:\n{text[:6000]}"
     try:
         completion = client.chat.completions.create(
             model="openai/gpt-oss-120b",
@@ -37,9 +37,7 @@ def extract_entities(text):
         raw = completion.choices[0].message.content.strip()
         parsed = json.loads(raw)
         
-        # Groq is extremely fast and generous with rate limits, but a small delay ensures stability
         time.sleep(2) 
-        
         return parsed
     except Exception as e:
         print(f"Groq Extraction Failed: {e}")

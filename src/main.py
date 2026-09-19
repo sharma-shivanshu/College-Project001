@@ -1,35 +1,44 @@
 import os
 import time
+import random
 import feedparser
-from scraper import scrape_dainik_bhaskar
+from scraper import scrape_heavy_article
 from filter_engine import is_relevant
 from extractor import extract_entities
 from database import filter_existing_urls, save_article
 from sheets_sync import append_to_sheet
 
-SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "SET_ME_IN_GITHUB_SECRETS")
+SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "1MlBvANu6ePWqQSWT9GlQbG0ZhrIm8_yvGTiE1_KeztE")
 
 def fetch_live_feed_data():
-    """
-    Fetches the latest articles dynamically from RSS feeds.
-    Returns a dictionary mapping URL -> metadata {title, summary}.
-    """
-    print("Fetching live RSS feeds...")
+    print("Fetching live RSS feeds across UP...")
     article_data = {}
     
+    # Expanded News Footprint for massive UP coverage
     feeds = [
-        "https://www.bhaskar.com/rss-feed/2322/",
-        "https://cms.patrika.com/blog/location/lucknow-news/feed/"
+        "https://www.bhaskar.com/rss-feed/2322/", # Dainik Bhaskar UP
+        "https://cms.patrika.com/blog/location/lucknow-news/feed/", # Patrika Lucknow
+        "https://cms.patrika.com/blog/location/uttar-pradesh/feed/", # Patrika UP
+        "https://hindi.news18.com/rss/uttar-pradesh.xml", # News18 UP
+        "https://zeenews.india.com/hindi/india/up-uttarakhand/rss.xml", # Zee News UP
+        "https://www.livehindustan.com/rss/state/uttar-pradesh", # Hindustan
+        "https://www.abplive.com/states/up-uk/feed", # ABP Ganga
+        "https://ndtv.in/uttar-pradesh/rss", # NDTV UP
+        # Twitter/Social feeds via public RSS Bridges can be added here
     ]
     
     for feed_url in feeds:
         try:
             parsed = feedparser.parse(feed_url)
-            for entry in parsed.entries: 
+            for entry in parsed.entries: # Removed the limit to scrape everything aggressively
                 if hasattr(entry, 'link'):
-                    article_data[entry.link] = {
-                        "title": entry.get("title", ""),
-                        "summary": entry.get("summary", "")
+                    title = entry.get("title", "")
+                    summary = entry.get("summary", "")
+                    # Clean up tracking params
+                    clean_url = entry.link.split('?')[0]
+                    article_data[clean_url] = {
+                        "title": title,
+                        "summary": summary
                     }
         except Exception as e:
             print(f"Failed to fetch feed {feed_url}: {e}")
@@ -37,62 +46,63 @@ def fetch_live_feed_data():
     return article_data
 
 def run_pipeline():
-    print("Starting Optimized Pre-Filter Pipeline...")
+    print("Starting Aggressive UP Intelligence Pipeline...")
     
-    # 1. Discover LIVE URLs and metadata
     live_articles = fetch_live_feed_data()
-    print(f"Found {len(live_articles)} live articles.")
+    print(f"Found {len(live_articles)} live articles across all sources.")
     if not live_articles: return
     
-    # 2. Deduplication (Check Supabase so we don't process old URLs)
     new_urls = filter_existing_urls(list(live_articles.keys()))
-    if not new_urls:
-        print("All discovered articles have already been processed previously. Exiting cleanly.")
-        return
+    print(f"Deduplication: {len(live_articles)} total -> {len(new_urls)} new articles.")
+    if not new_urls: return
 
-    # 3. Process new URLs
     for url in new_urls:
         print(f"\nEvaluating: {url}")
         meta = live_articles[url]
         
-        # A. SMART PRE-FILTER (Evaluate URL, Title, and Summary BEFORE Scraping!)
+        # SMART PRE-FILTER
         combined_meta_text = f"{url} {meta['title']} {meta['summary']}"
         if not is_relevant(combined_meta_text):
-            continue # Skip scraping entirely! Saves massive compute time.
+            continue 
             
-        # B. Scrape Full Text (Only for articles that passed the pre-filter)
-        print("   -> Pre-filter PASSED. Initiating heavy scrape...")
-        text = scrape_dainik_bhaskar(url)
+        print("   -> Pre-filter PASSED. Initiating stealth scrape...")
+        # Random delay to prevent IP bans
+        time.sleep(random.uniform(1.5, 4.0)) 
+        
+        text = scrape_heavy_article(url)
         if not text or len(text) < 100:
             print("   -> Failed to scrape or text too short. Skipping.")
             continue
             
-        # C. LLM Extraction
-        print("   -> Sending to Gemini for extraction...")
+        print("   -> Sending to Groq (gpt-oss-120b)...")
         extracted_data = extract_entities(text)
         if not extracted_data:
             continue
             
-        # D. Assemble Final Record
+        # Determine source
+        source = "unknown"
+        for s in ["bhaskar", "patrika", "news18", "zeenews", "livehindustan", "abplive", "ndtv"]:
+            if s in url: source = s; break
+            
         record = {
             "article_url": url,
-            "source": "dainik_bhaskar" if "bhaskar.com" in url else "patrika",
-            "activity_type": extracted_data.get("activity_type", "other"),
-            "electoral_relevance": extracted_data.get("electoral_relevance", "none"),
+            "source": source,
+            "activity_type": str(extracted_data.get("activity_type", "other")),
+            "electoral_relevance": str(extracted_data.get("electoral_relevance", "none")),
             "summary": extracted_data.get("summary", ""),
             "raw_json": extracted_data
         }
         
-        # E. Save to Supabase
         save_article(record)
         
-        # F. Save to Google Sheets (for visibility)
         row = [
             url, 
             record["source"], 
-            str(record["activity_type"]), 
+            record["activity_type"], 
             record["electoral_relevance"], 
-            record["summary"]
+            record["summary"],
+            extracted_data.get("district", ""),
+            ", ".join(extracted_data.get("key_leaders", []))
         ]
         append_to_sheet(SPREADSHEET_ID, row)
         
