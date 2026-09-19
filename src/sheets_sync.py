@@ -27,34 +27,30 @@ def append_to_sheet(raw_spreadsheet_id, data_row):
     if not client: return False
     
     sheet_id = extract_sheet_id(raw_spreadsheet_id)
-    today_str = datetime.now().strftime("%d-%b-%Y") # E.g., 19-Sep-2026
+    today_str = datetime.now().strftime("%d-%b-%Y") 
     
     try:
         spreadsheet = client.open_by_key(sheet_id)
         
-        # 1. Get or Create today's worksheet
         try:
             worksheet = spreadsheet.worksheet(today_str)
         except gspread.exceptions.WorksheetNotFound:
             print(f"   -> Creating new tab for {today_str}...")
-            worksheet = spreadsheet.add_worksheet(title=today_str, rows=1000, cols=15)
+            worksheet = spreadsheet.add_worksheet(title=today_str, rows=1000, cols=16)
             
-            # 2. Add Polished Headers
             headers = [
                 "Post Date", "Post Time", "Link", "Source", "Activity Type", 
                 "Political Relevance", "District", "Constituency", "Local Geography", 
-                "Key Leaders", "Keywords", "Summary", "Scraped Content"
+                "Parties Involved", "Key Leaders", "Keywords", "Summary", "Scraped Content"
             ]
             worksheet.append_row(headers, table_range="A1")
             
-            # 3. Format Headers (Bold + Frozen)
             worksheet.freeze(rows=1)
-            worksheet.format("A1:M1", {
+            worksheet.format("A1:N1", {
                 "backgroundColor": {"red": 0.9, "green": 0.9, "blue": 0.9},
                 "textFormat": {"bold": True, "fontSize": 11}
             })
             
-        # 4. Append Data
         worksheet.append_row(data_row, table_range="A1")
         print("   -> Successfully synced to Google Sheets!")
         return True
