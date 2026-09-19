@@ -27,7 +27,19 @@ def append_to_sheet(raw_spreadsheet_id, data_row):
     if not client: return False
     
     sheet_id = extract_sheet_id(raw_spreadsheet_id)
-    today_str = datetime.now().strftime("%d-%b-%Y") 
+    # "News day" logic: before 5:30 AM IST (UTC+5:30 = 00:00 UTC), articles still belong
+    # to the previous calendar day because newspapers publish the night's content overnight.
+    now_ist = datetime.utcnow()
+    # Offset to IST manually (no pytz needed)
+    ist_hour = (now_ist.hour + 5) % 24
+    ist_minute = (now_ist.minute + 30) % 60
+    if ist_hour < 5 or (ist_hour == 5 and ist_minute == 0):
+        from datetime import timedelta
+        news_day = datetime.utcnow() - timedelta(days=1)
+    else:
+        news_day = datetime.utcnow()
+    today_str = news_day.strftime("%d-%b-%Y")
+
     
     try:
         spreadsheet = client.open_by_key(sheet_id)
