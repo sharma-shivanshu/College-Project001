@@ -1,13 +1,13 @@
 import os
 import json
 import time
+from groq import Groq
 
-def get_gemini_client():
-    api_key = os.environ.get("GEMINI_API_KEY")
+def get_groq_client():
+    api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
         return None
-    from google import genai
-    return genai.Client(api_key=api_key)
+    return Groq(api_key=api_key)
 
 # Optimized prompt for token saving and strict JSON adherence
 SCHEMA = '''{
@@ -20,25 +20,28 @@ SCHEMA = '''{
 }'''
 
 def extract_entities(text):
-    client = get_gemini_client()
+    client = get_groq_client()
     if not client:
-        print("Gemini API key not found. Skipping extraction.")
+        print("Groq API key not found. Skipping extraction.")
         return None
         
-    prompt = f"Analyze this Hindi/English political article. Extract data EXACTLY matching this JSON schema. No markdown, no explanations, just raw JSON.\nSCHEMA:\n{SCHEMA}\n\nTEXT:\n{text[:6000]}"
+    prompt = f"Analyze this Hindi/English political article. Extract data EXACTLY matching this JSON schema. Return ONLY a valid JSON object. Do not wrap in markdown or add explanations.\nSCHEMA:\n{SCHEMA}\n\nTEXT:\n{text[:6000]}"
     try:
-        response = client.models.generate_content(
-            model='gemini-3.6-flash',
-            contents=prompt,
+        completion = client.chat.completions.create(
+            model="llama-3.1-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            response_format={"type": "json_object"}
         )
-        raw = response.text.replace('```json', '').replace('```', '').strip()
+        
+        raw = completion.choices[0].message.content.strip()
         parsed = json.loads(raw)
         
-        # Enforce rate limits: Free tier is 15 RPM (1 request every 4 seconds)
-        time.sleep(4.5) 
+        # Groq is extremely fast and generous with rate limits, but a small delay ensures stability
+        time.sleep(2) 
         
         return parsed
     except Exception as e:
-        print(f"Gemini Extraction Failed: {e}")
-        time.sleep(5) # Cooldown on failure
+        print(f"Groq Extraction Failed: {e}")
+        time.sleep(5)
         return None
