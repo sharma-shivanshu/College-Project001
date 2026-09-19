@@ -1,7 +1,6 @@
 name: Daily Political Pipeline
 
 on:
-    - cron: '0 * * * *'  # Runs automatically at minute 0 past every hour
   repository_dispatch:
     types: [cron_trigger]
   workflow_dispatch:
