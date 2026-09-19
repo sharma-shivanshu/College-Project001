@@ -20,7 +20,7 @@ def extract_entities(text):
     try:
         # Upgraded to the modern API and the 2.5-flash model
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.6-flash',
             contents=prompt,
         )
         raw = response.text.replace('```json', '').replace('```', '').strip()
