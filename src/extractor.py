@@ -1,11 +1,9 @@
 import os
 import json
 import time
-import google.generativeai as genai
+from google import genai
 
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-# Gemini 1.5 Flash is highly cost-effective and fast
-model = genai.GenerativeModel('gemini-1.5-flash')
+client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
 # Optimized prompt for token saving and strict JSON adherence
 SCHEMA = '''{
@@ -20,7 +18,11 @@ SCHEMA = '''{
 def extract_entities(text):
     prompt = f"Analyze this Hindi/English political article. Extract data EXACTLY matching this JSON schema. No markdown, no explanations, just raw JSON.\nSCHEMA:\n{SCHEMA}\n\nTEXT:\n{text[:6000]}"
     try:
-        response = model.generate_content(prompt)
+        # Upgraded to the modern API and the 2.5-flash model
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+        )
         raw = response.text.replace('```json', '').replace('```', '').strip()
         parsed = json.loads(raw)
         
