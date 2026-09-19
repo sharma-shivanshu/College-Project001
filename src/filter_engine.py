@@ -1,53 +1,27 @@
-import pickle
-import os
 import re
 
-MODEL_PATH = "relevance_model.pkl"
+# Integrated the massive list of specific leaders and parties requested by the user to guarantee they pass the pre-filter
+POSITIVE_KEYWORDS_REGEX = r'\b(bjp|sp|bsp|rld|inc|congress|samajwadi|bahujan|aap|aimim|ad\(s\)|sbsp|nishad|asp|ad\(k\)|pecp|iemc)\b'
+POSITIVE_HINDI_REGEX = r'(भाजपा|सपा|बसपा|कांग्रेस|रालोद|सुभसपा|निषाद|असपा|अमीम|आइएमसी|आप|चुनाव|मतदान|विधायक|सांसद|मुख्यमंत्री|मंत्री|राजनीति|रैली|गठबंधन|सीट|उम्मीदवार|टिकट|वोट|सरकार|योजना|विपक्ष|प्रदर्शन|धरना|नियुक्ति)'
 
-# Strong indicators of NON-political content
-NEGATIVE_KEYWORDS = [
-    r"\bweather\b", r"\brain\b", r"\bstorm\b", r"\bcricket\b", r"\bsports\b", r"\bbollywood\b", r"\bmurder\b", r"\bsuicide\b", r"\baccident\b", r"\brape\b", r"\bcrime\b",
-    "मौसम", "बारिश", "क्रिकेट", "खेल", "फिल्म", "हत्या", "आत्महत्या", "दुर्घटना", "रेप", "अपराध"
-]
+LEADERS_REGEX = r'(rajnath singh|yogi adityanath|pankaj chaudhary|dharampal singh|bhupendra chaudhary|keshav prasad maurya|brajesh pathak|satish mahana|suresh khanna|pankaj singh|jayant chaudhary|chaudhary charan singh|ajit singh|charu singh|chandan chauhan|gulam mohammad|madan bhaiya|anil kumar|rajkumar sangwan|rajpal singh balyan|ashraf ali khan|anupriya patel|ashish patel|vachaspati saroj|jai kumar singh jaiki|rk patel|rinki kol|om prakash rajbhar|arvind rajbhar|abbas ansari|hansu ram|bedi ram|sanjay nishad|praveen nishad|anil kumar tripathi|rishi tripathi|ramesh singh|vipul dubey|vivekanand pandey|mata prasad pandey|shivpal yadav|dharmendra yadav|akhilesh yadav|awdhesh prasad|tej pratap yadav|dimple yadav|mulayam singh yadav|iqra hasan|ajay rai|rahul gandhi|priyanka gandhi|kishori lal sharma|tanuj punia|rakesh rathore|imran masood|ujjawal raman singh|pramod tiwari|aradhna mishra mona|revati raman singh|virendra chaudhary|mayawati|vishwanath pal|akash anand|umashankar singh|satish mishra|bhim army|chandrashekhar azad|pallavi patel|krishna patel|dr ayyub khan|asaduddin owaisi|shaukat ali|maulana taukeer raza khan|sanjay singh)'
 
-# Strong indicators of political/governance content
-POSITIVE_KEYWORDS = [
-    r"\belection\b", r"\bbjp\b", r"\bcongress\b", r"\bsp\b", r"\bakhilesh\b", r"\byogi\b", r"\brally\b", r"\bprotest\b", r"\bgovernment\b", r"\bscheme\b", r"\bpolicy\b", r"\bmla\b", r"\bmp\b", r"\bcm\b", r"\bpm\b",
-    "चुनाव", "भाजपा", "सपा", "कांग्रेस", "योगी", "अखिलेश", "रैली", "धरना", "सरकार", "योजना", "नीति", "विधायक", "सांसद", "मुख्यमंत्री", "प्रधानमंत्री", "टिकट", "मोर्चा"
-]
+NEGATIVE_KEYWORDS_REGEX = r'\b(rape|murder|suicide|killed|accident|crash|sports|cricket|weather|bollywood|movie|review|recipe|fashion)\b'
+NEGATIVE_HINDI_REGEX = r'(हत्या|बलात्कार|सुसाइड|हादसा|खेल|क्रिकेट|मौसम|बॉलीवुड|रेसिपी|फैशन|दुर्घटना)'
 
-def is_relevant(text_to_analyze):
-    """
-    Evaluates relevance based on URL, Title, and Summary BEFORE scraping.
-    Returns True if it's likely political. False if irrelevant.
-    """
-    text_lower = text_to_analyze.lower()
+def is_relevant(text):
+    text_lower = text.lower()
     
-    # 1. Instant Reject: Negative Keywords
-    for nkw in NEGATIVE_KEYWORDS:
-        if re.search(nkw, text_lower):
-            print(f"   -> Rejected: Found negative keyword '{nkw}'")
-            return False
-
-    # 2. ML Model Scoring (If available)
-    ml_score = 0
-    if os.path.exists(MODEL_PATH):
-        try:
-            with open(MODEL_PATH, "rb") as f:
-                model = pickle.load(f)
-            probs = model.predict_proba([text_lower])
-            ml_score = probs[0][1] if len(probs[0]) > 1 else 0
-        except Exception as e:
-            pass
-            
-    # 3. Positive Keyword Density
-    keyword_count = 0
-    for kw in POSITIVE_KEYWORDS:
-        if re.search(kw, text_lower):
-            keyword_count += 1
-    
-    if ml_score > 0.6 or keyword_count >= 1:
+    # 1. Reject if negative keywords found
+    if re.search(NEGATIVE_KEYWORDS_REGEX, text_lower) or re.search(NEGATIVE_HINDI_REGEX, text_lower):
+        return False
+        
+    # 2. Accept if specific leader is mentioned
+    if re.search(LEADERS_REGEX, text_lower):
         return True
         
-    print(f"   -> Rejected: No political keywords found and ML score low ({ml_score:.2f})")
+    # 3. Accept if political keywords/parties found
+    if re.search(POSITIVE_KEYWORDS_REGEX, text_lower) or re.search(POSITIVE_HINDI_REGEX, text_lower):
+        return True
+        
     return False
