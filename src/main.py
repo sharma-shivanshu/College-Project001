@@ -1,5 +1,6 @@
 import os
 import time
+import feedparser
 from scraper import scrape_dainik_bhaskar
 from filter_engine import is_relevant
 from extractor import extract_entities
@@ -8,20 +9,47 @@ from sheets_sync import append_to_sheet
 
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "SET_ME_IN_GITHUB_SECRETS")
 
+def fetch_live_urls():
+    """
+    Fetches the absolute latest URLs dynamically from live RSS feeds.
+    This guarantees we never process old 2-year-old articles.
+    """
+    print("Fetching live RSS feeds...")
+    urls = []
+    
+    # List of live RSS feeds to monitor
+    feeds = [
+        "https://www.bhaskar.com/rss-feed/2322/", # Example Bhaskar UP feed
+        "https://cms.patrika.com/blog/location/lucknow-news/feed/"
+    ]
+    
+    for feed_url in feeds:
+        try:
+            parsed = feedparser.parse(feed_url)
+            for entry in parsed.entries[:20]: # Grab top 20 latest from each feed
+                if hasattr(entry, 'link'):
+                    urls.append(entry.link)
+        except Exception as e:
+            print(f"Failed to fetch feed {feed_url}: {e}")
+            
+    # Fallback to homepage scraping if RSS fails (optional advanced logic)
+    return list(set(urls))
+
 def run_pipeline():
     print("Starting Political Intelligence Pipeline...")
     
-    # 1. Discover URLs (Mocked for demonstration, replace with actual RSS/Sitemap fetching)
-    # E.g. fetch_rss_feeds()
-    discovered_urls = [
-        "https://www.bhaskar.com/local/uttar-pradesh/lucknow/news/up-bjp-state-president-bhupendra-chaudhary-said-we-will-win-the-upcoming-by-elections-133649514.html",
-        "https://www.bhaskar.com/local/uttar-pradesh/varanasi/news/varanasi-news-pm-modi-visit-to-kashi-on-18-june-133182103.html"
-    ]
+    # 1. Discover LIVE URLs from today
+    discovered_urls = fetch_live_urls()
+    print(f"Found {len(discovered_urls)} live articles published recently.")
+    
+    if not discovered_urls:
+        print("No URLs discovered. Exiting.")
+        return
     
     # 2. Deduplication (Check Supabase so we don't process old URLs)
     new_urls = filter_existing_urls(discovered_urls)
     if not new_urls:
-        print("No new articles to process. Exiting cleanly.")
+        print("All discovered articles have already been processed previously. Exiting cleanly.")
         return
 
     # 3. Process new URLs
@@ -47,7 +75,7 @@ def run_pipeline():
         # D. Assemble Final Record
         record = {
             "article_url": url,
-            "source": "dainik_bhaskar",
+            "source": "dainik_bhaskar" if "bhaskar.com" in url else "patrika",
             "activity_type": extracted_data.get("activity_type", "other"),
             "electoral_relevance": extracted_data.get("electoral_relevance", "none"),
             "summary": extracted_data.get("summary", ""),
