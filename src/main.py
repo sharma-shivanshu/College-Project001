@@ -2,8 +2,7 @@ import os
 import time
 import random
 import feedparser
-import urllib.parse
-from datetime import datetime, timedelta
+from datetime import datetime
 from scraper import scrape_heavy_article
 from filter_engine import is_relevant
 from extractor import extract_entities
@@ -11,55 +10,56 @@ from database import filter_existing_urls, save_article
 from sheets_sync import append_to_sheet
 
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "1MlBvANu6ePWqQSWT9GlQbG0ZhrIm8_yvGTiE1_KeztE")
-MAX_SCRAPES_PER_RUN = 30  # Hard cap to respect Groq's 200k Tokens Per Day limit
+MAX_SCRAPES_PER_RUN = 50 
 
-UP_DISTRICTS = [
-    "Agra", "Aligarh", "Prayagraj", "Ambedkar Nagar", "Amethi", "Amroha", "Auraiya", "Ayodhya", "Azamgarh", 
-    "Badaun", "Baghpat", "Bahraich", "Ballia", "Balrampur", "Banda", "Barabanki", "Bareilly", "Basti", 
-    "Bhadohi", "Bijnor", "Bulandshahr", "Chandauli", "Chitrakoot", "Deoria", "Etah", "Etawah", "Farrukhabad", 
-    "Fatehpur", "Firozabad", "Gautam Buddha Nagar", "Ghaziabad", "Ghazipur", "Gonda", "Gorakhpur", "Hamirpur", 
-    "Hapur", "Hardoi", "Hathras", "Jalaun", "Jaunpur", "Jhansi", "Kannauj", "Kanpur", "Kasganj", "Kaushambi", 
-    "Kheri", "Kushinagar", "Lalitpur", "Lucknow", "Maharajganj", "Mahoba", "Mainpuri", "Mathura", "Mau", 
-    "Meerut", "Mirzapur", "Moradabad", "Muzaffarnagar", "Pilibhit", "Pratapgarh", "Raebareli", "Rampur", 
-    "Saharanpur", "Sambhal", "Sant Kabir Nagar", "Shahjahanpur", "Shamli", "Shravasti", "Siddharthnagar", 
-    "Sitapur", "Sonbhadra", "Sultanpur", "Unnao", "Varanasi"
-]
-
-def fetch_google_news_for_districts():
-    print("Fetching Google News aggregators...")
+def fetch_direct_news_feeds():
+    print("Fetching directly from Native News RSS Feeds...")
     article_data = {}
-    random.shuffle(UP_DISTRICTS)
+    
+    feeds = [
+        "https://www.bhaskar.com/rss-feed/2322/", # Dainik Bhaskar UP
+        "https://cms.patrika.com/blog/location/lucknow-news/feed/", # Patrika Lucknow
+        "https://cms.patrika.com/blog/location/uttar-pradesh/feed/", # Patrika UP
+        "https://hindi.news18.com/rss/uttar-pradesh.xml", # News18 UP
+        "https://zeenews.india.com/hindi/india/up-uttarakhand/rss.xml", # Zee News UP
+        "https://www.livehindustan.com/rss/state/uttar-pradesh", # Hindustan
+        "https://www.abplive.com/states/up-uk/feed", # ABP Ganga
+        "https://ndtv.in/uttar-pradesh/rss", # NDTV UP
+        "https://english.jagran.com/rss/politics.xml", # Jagran English
+        "https://rsshub.app/twitter/user/yadavakhilesh", # Akhilesh Yadav X
+        "https://rsshub.app/twitter/user/myogiadityanath" # Yogi Adityanath X
+    ]
     
     # 48 hours ago timestamp
     time_limit = time.time() - (48 * 3600)
     
-    for district in UP_DISTRICTS:
-        query = urllib.parse.quote(f"{district} politics OR election OR bjp OR sp OR bsp")
-        feed_url = f"https://news.google.com/rss/search?q={query}&hl=hi&gl=IN&ceid=IN:hi"
+    for feed_url in feeds:
         try:
             parsed = feedparser.parse(feed_url)
-            for entry in parsed.entries[:15]: 
-                # STRICT PYTHON-LEVEL DATE FILTER (Ignore anything older than 48 hours)
+            for entry in parsed.entries: 
+                # Strict Python-level date filter
                 if hasattr(entry, 'published_parsed') and entry.published_parsed:
                     pub_time = time.mktime(entry.published_parsed)
                     if pub_time < time_limit:
-                        continue # Drop old articles instantly
+                        continue 
                 
                 if hasattr(entry, 'link'):
-                    article_data[entry.link] = {
+                    clean_url = entry.link.split('?')[0]
+                    article_data[clean_url] = {
                         "title": entry.get("title", ""),
                         "summary": entry.get("summary", ""),
-                        "source_feed": "google_news"
+                        "source_feed": feed_url
                     }
         except Exception as e:
             pass 
+            
     return article_data
 
 def run_pipeline():
-    print("Starting Optimized Pipeline...")
+    print("Starting Direct Native Feed Pipeline...")
     
-    live_articles = fetch_google_news_for_districts()
-    print(f"Found {len(live_articles)} recent local links.")
+    live_articles = fetch_direct_news_feeds()
+    print(f"Found {len(live_articles)} recent links directly from sources.")
     if not live_articles: return
     
     new_urls = filter_existing_urls(list(live_articles.keys()))
@@ -81,16 +81,18 @@ def run_pipeline():
         if not text or len(text) < 50:
             continue
             
-        print("   -> Extracting Entities via Groq...")
+        print("   -> Extracting Entities via Groq (with Fallback Roll-over)...")
         extracted_data = extract_entities(text)
         if not extracted_data:
             continue
             
         scraped_count += 1
             
-        source = "google_news_aggregator"
-        for s in ["bhaskar", "patrika", "news18", "zeenews", "livehindustan", "abplive", "ndtv", "jagran", "amarujala", "navbharattimes"]:
-            if s in url.lower(): source = s; break
+        source = "unknown"
+        if "twitter" in url or "rsshub" in meta["source_feed"]: source = "x_twitter"
+        else:
+            for s in ["bhaskar", "patrika", "news18", "zeenews", "livehindustan", "abplive", "ndtv", "jagran"]:
+                if s in url.lower(): source = s; break
             
         record = {
             "article_url": url,
@@ -117,11 +119,11 @@ def run_pipeline():
             ", ".join(extracted_data.get("key_leaders", [])),
             ", ".join(extracted_data.get("keywords", [])),
             record["summary"],
-            text[:10000] # Cap text output to prevent sheet bloat
+            text[:10000]
         ]
         append_to_sheet(SPREADSHEET_ID, row)
         
-    print(f"\nPipeline complete. Processed {scraped_count} local articles.")
+    print(f"\nPipeline complete. Processed {scraped_count} native articles.")
 
 if __name__ == "__main__":
     run_pipeline()
