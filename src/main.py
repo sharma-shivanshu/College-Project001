@@ -14,8 +14,8 @@ def run_pipeline():
     # 1. Discover URLs (Mocked for demonstration, replace with actual RSS/Sitemap fetching)
     # E.g. fetch_rss_feeds()
     discovered_urls = [
-        "https://www.bhaskar.com/local/uttar-pradesh/lucknow/news/dummy-url-1.html",
-        "https://www.bhaskar.com/local/uttar-pradesh/varanasi/news/dummy-url-2.html"
+        "https://www.bhaskar.com/local/uttar-pradesh/lucknow/news/up-bjp-state-president-bhupendra-chaudhary-said-we-will-win-the-upcoming-by-elections-133649514.html",
+        "https://www.bhaskar.com/local/uttar-pradesh/varanasi/news/varanasi-news-pm-modi-visit-to-kashi-on-18-june-133182103.html"
     ]
     
     # 2. Deduplication (Check Supabase so we don't process old URLs)
