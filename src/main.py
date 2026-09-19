@@ -139,18 +139,21 @@ def run_pipeline():
         scraped_count += 1
         source = meta["source"]
 
-        record = {
-            "article_url":       url,
-            "source":            source,
-            "activity_type":     str(extracted_data.get("activity_type", "other")),
-            "electoral_relevance": str(extracted_data.get("electoral_relevance", "none")),
-            "summary":           extracted_data.get("summary", ""),
-            "raw_json":          extracted_data
-        }
-        save_article(record)
-
         now = datetime.now()
         district = extracted_data.get("district") or meta.get("district", "")
+
+        record = {
+            "article_url":         url,
+            "source":              source,
+            "activity_type":       str(extracted_data.get("activity_type", "other")),
+            "electoral_relevance": str(extracted_data.get("electoral_relevance", "none")),
+            "summary":             extracted_data.get("summary", ""),
+            "scraped_text":        text[:20000],   # stored in Supabase for future re-processing
+            "published_date":      now.strftime("%Y-%m-%d"),
+            "sheet_synced":        True,
+            "raw_json":            extracted_data
+        }
+        save_article(record)
 
         row = [
             now.strftime("%Y-%m-%d"),

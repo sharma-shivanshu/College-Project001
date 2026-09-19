@@ -41,10 +41,11 @@ Use these exact abbreviations for 'parties_involved' if any of their leaders or 
 """
 
 FALLBACK_MODELS = [
-    "openai/gpt-oss-120b",
-    "qwen/qwen3.8-27b",
-    "openai/gpt-oss-20b",
-    "groq/compound"
+    "openai/gpt-oss-120b",    # 120B — highest quality, 200k TPD free
+    "qwen/qwen3.8-27b",       # 27B — excellent at Hindi/multilingual, separate daily quota
+    "openai/gpt-oss-20b",     # 20B — fast, separate daily quota
+    "groq/compound",           # Groq's own compound model, separate daily quota
+    "groq/compound-mini",      # Lighter compound — last resort, separate daily quota
 ]
 
 def clean_text(text):
