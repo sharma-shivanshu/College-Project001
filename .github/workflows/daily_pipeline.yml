@@ -1,8 +1,8 @@
 name: Daily Political Pipeline
 
 on:
-  schedule:
-    - cron: '0 4 * * *' # Runs at 4 AM UTC daily
+  repository_dispatch:
+    types: [cron_trigger]
   workflow_dispatch:
 
 jobs:
