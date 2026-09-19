@@ -2,6 +2,7 @@ import os
 import time
 import random
 import feedparser
+import urllib.parse
 from scraper import scrape_heavy_article
 from filter_engine import is_relevant
 from extractor import extract_entities
@@ -9,50 +10,51 @@ from database import filter_existing_urls, save_article
 from sheets_sync import append_to_sheet
 
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "1MlBvANu6ePWqQSWT9GlQbG0ZhrIm8_yvGTiE1_KeztE")
-MAX_SCRAPES_PER_RUN = 40  # Prevents GitHub Actions from timing out or hitting rate limits
+MAX_SCRAPES_PER_RUN = 250  # Allows ~6,000 scrapes a day if running hourly
 
-def fetch_live_feed_data():
-    print("Fetching live RSS feeds across UP (News + Social)...")
+UP_DISTRICTS = [
+    "Agra", "Aligarh", "Prayagraj", "Ambedkar Nagar", "Amethi", "Amroha", "Auraiya", "Ayodhya", "Azamgarh", 
+    "Badaun", "Baghpat", "Bahraich", "Ballia", "Balrampur", "Banda", "Barabanki", "Bareilly", "Basti", 
+    "Bhadohi", "Bijnor", "Bulandshahr", "Chandauli", "Chitrakoot", "Deoria", "Etah", "Etawah", "Farrukhabad", 
+    "Fatehpur", "Firozabad", "Gautam Buddha Nagar", "Ghaziabad", "Ghazipur", "Gonda", "Gorakhpur", "Hamirpur", 
+    "Hapur", "Hardoi", "Hathras", "Jalaun", "Jaunpur", "Jhansi", "Kannauj", "Kanpur", "Kasganj", "Kaushambi", 
+    "Kheri", "Kushinagar", "Lalitpur", "Lucknow", "Maharajganj", "Mahoba", "Mainpuri", "Mathura", "Mau", 
+    "Meerut", "Mirzapur", "Moradabad", "Muzaffarnagar", "Pilibhit", "Pratapgarh", "Raebareli", "Rampur", 
+    "Saharanpur", "Sambhal", "Sant Kabir Nagar", "Shahjahanpur", "Shamli", "Shravasti", "Siddharthnagar", 
+    "Sitapur", "Sonbhadra", "Sultanpur", "Unnao", "Varanasi"
+]
+
+def fetch_google_news_for_districts():
+    print("Fetching Google News aggregators for all 75 UP Districts...")
     article_data = {}
     
-    feeds = [
-        # News Sources
-        "https://www.bhaskar.com/rss-feed/2322/", 
-        "https://cms.patrika.com/blog/location/lucknow-news/feed/", 
-        "https://hindi.news18.com/rss/uttar-pradesh.xml", 
-        "https://zeenews.india.com/hindi/india/up-uttarakhand/rss.xml", 
-        "https://www.livehindustan.com/rss/state/uttar-pradesh", 
-        "https://www.abplive.com/states/up-uk/feed", 
-        "https://ndtv.in/uttar-pradesh/rss",
-        # Social Media (X/Twitter via public RSS bridges for top leaders)
-        "https://rsshub.app/twitter/user/yadavakhilesh",
-        "https://rsshub.app/twitter/user/myogiadityanath",
-        "https://rsshub.app/twitter/user/Mayawati"
-    ]
+    # Shuffle districts so we don't always hit the same ones first if we reach max limit
+    random.shuffle(UP_DISTRICTS)
     
-    for feed_url in feeds:
+    for district in UP_DISTRICTS:
+        # Search query guarantees massive coverage of Dainik Bhaskar, Hindustan, Jagran, etc. specifically for this district
+        query = urllib.parse.quote(f"{district} politics OR election OR bjp OR sp OR bsp")
+        feed_url = f"https://news.google.com/rss/search?q={query}&hl=hi&gl=IN&ceid=IN:hi"
+        
         try:
             parsed = feedparser.parse(feed_url)
-            for entry in parsed.entries: 
+            for entry in parsed.entries[:20]: # Grab top 20 most relevant per district per hour
                 if hasattr(entry, 'link'):
-                    title = entry.get("title", "")
-                    summary = entry.get("summary", "")
-                    clean_url = entry.link.split('?')[0]
-                    article_data[clean_url] = {
-                        "title": title,
-                        "summary": summary,
-                        "source_feed": feed_url
+                    article_data[entry.link] = {
+                        "title": entry.get("title", ""),
+                        "summary": entry.get("summary", ""),
+                        "source_feed": "google_news"
                     }
         except Exception as e:
-            pass # Fail silently for individual feeds to keep pipeline alive
+            pass 
             
     return article_data
 
 def run_pipeline():
-    print("Starting Aggressive UP Intelligence Pipeline...")
+    print("Starting Mega District Intelligence Pipeline...")
     
-    live_articles = fetch_live_feed_data()
-    print(f"Found {len(live_articles)} live links across all sources.")
+    live_articles = fetch_google_news_for_districts()
+    print(f"Found {len(live_articles)} highly targeted local links.")
     if not live_articles: return
     
     new_urls = filter_existing_urls(list(live_articles.keys()))
@@ -63,45 +65,29 @@ def run_pipeline():
 
     for url in new_urls:
         if scraped_count >= MAX_SCRAPES_PER_RUN:
-            print(f"\nReached MAX_SCRAPES_PER_RUN ({MAX_SCRAPES_PER_RUN}). Stopping gracefully to save compute time.")
+            print(f"\nReached MAX_SCRAPES_PER_RUN ({MAX_SCRAPES_PER_RUN}). Stopping gracefully.")
             break
 
-        print(f"\nEvaluating: {url}")
         meta = live_articles[url]
-        
-        # 1. SMART PRE-FILTER (Runs instantly, NO scraping yet)
         combined_meta_text = f"{url} {meta['title']} {meta['summary']}"
         if not is_relevant(combined_meta_text):
             continue 
             
-        # 2. HEAVY SCRAPE (Only runs if it passes the filter)
-        print("   -> Pre-filter PASSED. Initiating stealth scrape...")
-        time.sleep(random.uniform(1.5, 4.0)) 
-        
+        # Fast scraping with Trafilatura + Playwright Fallback
         text = scrape_heavy_article(url)
         if not text or len(text) < 50:
-            # If Playwright fails (common with Twitter blocks), use the RSS summary as fallback!
-            if "twitter" in url or "x.com" in url:
-                print("   -> Social media scrape blocked. Falling back to RSS text...")
-                text = meta['title'] + " " + meta['summary']
-            else:
-                print("   -> Failed to scrape or text too short. Skipping.")
-                continue
+            continue
             
-        # 3. AI EXTRACTION
-        print("   -> Sending to Groq...")
+        print("   -> Extracting Entities via Groq...")
         extracted_data = extract_entities(text)
         if not extracted_data:
             continue
             
         scraped_count += 1
             
-        source = "unknown"
-        if "twitter" in url or "rsshub" in meta["source_feed"]: source = "x_twitter"
-        elif "facebook" in url: source = "facebook"
-        else:
-            for s in ["bhaskar", "patrika", "news18", "zeenews", "livehindustan", "abplive", "ndtv"]:
-                if s in url: source = s; break
+        source = "google_news_aggregator"
+        for s in ["bhaskar", "patrika", "news18", "zeenews", "livehindustan", "abplive", "ndtv", "jagran", "amarujala"]:
+            if s in url.lower(): source = s; break
             
         record = {
             "article_url": url,
@@ -125,7 +111,7 @@ def run_pipeline():
         ]
         append_to_sheet(SPREADSHEET_ID, row)
         
-    print(f"\nPipeline execution complete. Successfully processed {scraped_count} items.")
+    print(f"\nMega Pipeline complete. Processed {scraped_count} highly targeted local articles.")
 
 if __name__ == "__main__":
     run_pipeline()
