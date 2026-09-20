@@ -106,20 +106,17 @@ def update_sheet_intelligence(url_map, article_url, brief_text):
 
 def fetch_pending_articles(client, batch_size):
     """
-    Fetch articles that need intelligence processing:
-    - Have scraped_text (not null/empty)
-    - Don't have intelligence_brief yet
-    - Haven't failed 3+ times
-    - Order by published_date DESC (newest first)
+    Fetch articles that need intelligence processing.
+    Uses article_url as the primary key (no 'id' column in this table).
     """
     try:
         response = (
             client.table("articles")
-            .select("id, article_url, scraped_text, source, published_date, retry_count")
+            .select("article_url, scraped_text, source, published_date, retry_count")
             .not_.is_("scraped_text", "null")
             .is_("intelligence_brief", "null")
             .neq("processing_status", "complete")
-            .lte("retry_count", 2)  # Skip after 3 failures
+            .lte("retry_count", 2)
             .order("published_date", desc=True)
             .limit(batch_size)
             .execute()
@@ -130,30 +127,31 @@ def fetch_pending_articles(client, batch_size):
         return []
 
 
-def mark_article_done(client, article_id, intelligence_json, brief_text):
+def mark_article_done(client, article_url, intelligence_json, brief_text):
     try:
         client.table("articles").update({
             "intelligence_brief": brief_text,
             "intelligence_json": intelligence_json,
             "processing_status": "complete",
             "retry_count": 0
-        }).eq("id", article_id).execute()
+        }).eq("article_url", article_url).execute()
         return True
     except Exception as e:
         print(f"   -> Supabase update failed: {e}")
         return False
 
 
-def mark_article_error(client, article_id, current_retry_count):
+def mark_article_error(client, article_url, current_retry_count):
     new_count = (current_retry_count or 0) + 1
-    status = "intelligence_error" if new_count >= 3 else "done"  # revert to 'done' for retry
+    status = "intelligence_error" if new_count >= 3 else "done"
     try:
         client.table("articles").update({
             "retry_count": new_count,
             "processing_status": status
-        }).eq("id", article_id).execute()
+        }).eq("article_url", article_url).execute()
     except Exception as e:
         print(f"   -> Failed to mark error: {e}")
+
 
 
 def ensure_intelligence_columns(client):
@@ -197,7 +195,6 @@ def run_intelligence_pipeline():
     error_count = 0
 
     for article in pending:
-        article_id = article["id"]
         url = article["article_url"]
         scraped_text = article.get("scraped_text", "")
         retry_count = article.get("retry_count", 0)
@@ -206,35 +203,32 @@ def run_intelligence_pipeline():
 
         if not scraped_text or len(scraped_text) < 50:
             print("   -> Scraped text too short. Skipping.")
-            mark_article_error(client, article_id, retry_count)
+            mark_article_error(client, url, retry_count)
             error_count += 1
             continue
 
-        # Run intelligence extraction
         intel_json, brief_text, model_used = extract_intelligence(scraped_text)
 
         if not intel_json or not brief_text:
             print("   -> Intelligence extraction failed. Marking for retry.")
-            mark_article_error(client, article_id, retry_count)
+            mark_article_error(client, url, retry_count)
             error_count += 1
             continue
 
-        # Save to Supabase
-        saved = mark_article_done(client, article_id, intel_json, brief_text)
+        saved = mark_article_done(client, url, intel_json, brief_text)
         if not saved:
             error_count += 1
             continue
 
-        # Update existing row in Google Sheets (column O)
         sheet_updated = update_sheet_intelligence(url_map, url, brief_text)
         if sheet_updated:
             print(f"   -> Supabase ✓ | Sheets ✓ | Model: {model_used}")
         else:
-            print(f"   -> Supabase ✓ | Sheets: URL not found in recent tabs | Model: {model_used}")
+            print(f"   -> Supabase ✓ | Sheets: URL not in recent tabs | Model: {model_used}")
 
         success_count += 1
-        # Small delay to be respectful of rate limits
         time.sleep(1.5)
+
 
     print(f"\n{'=' * 65}")
     print(f"Intelligence Pipeline Complete.")
