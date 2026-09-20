@@ -56,13 +56,15 @@ def get_sheets_client_and_map(spreadsheet_id):
 
         url_map = {}  # {url: (worksheet_obj, row_number)}
 
-        # Determine news-day tabs to scan (today + yesterday in IST)
+        # Determine news-day tabs to scan based on IST time
         now_utc = datetime.utcnow()
-        ist_hour = (now_utc.hour + 5) % 24
-        if ist_hour < 5:
-            base_date = now_utc - timedelta(days=1)
+        now_ist = now_utc + timedelta(hours=5, minutes=30)
+        
+        # News day rolls over at 5 AM IST
+        if now_ist.hour < 5:
+            base_date = now_ist - timedelta(days=1)
         else:
-            base_date = now_utc
+            base_date = now_ist
         tabs_to_check = [
             base_date.strftime("%d-%b-%Y"),
             (base_date - timedelta(days=1)).strftime("%d-%b-%Y"),
