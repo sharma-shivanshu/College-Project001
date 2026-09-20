@@ -73,13 +73,24 @@ def get_sheets_client_and_map(spreadsheet_id):
             try:
                 ws = ss.worksheet(tab_name)
                 all_values = ws.get_all_values()
+                if not all_values:
+                    continue
+                
+                headers = all_values[0]
+                try:
+                    url_idx = headers.index("Link")
+                    brief_idx = headers.index("Intelligence Brief")
+                except ValueError:
+                    continue # Headers missing, skip tab
+                    
                 for i, row in enumerate(all_values):
                     if i == 0:
                         continue  # skip header
-                    if len(row) >= 3 and row[2]:  # column C = URL
-                        url = row[2].strip()
+                    if len(row) > url_idx and row[url_idx]:
+                        url = row[url_idx].strip()
                         if url and url not in url_map:
-                            url_map[url] = (ws, i + 1)  # 1-indexed row number
+                            # gspread is 1-indexed, so brief_idx + 1
+                            url_map[url] = (ws, i + 1, brief_idx + 1)
             except Exception:
                 pass
 
@@ -92,12 +103,12 @@ def get_sheets_client_and_map(spreadsheet_id):
 
 
 def update_sheet_intelligence(url_map, article_url, brief_text):
-    """Update column O of the existing row for this article."""
+    """Update the Intelligence Brief column of the existing row for this article."""
     if article_url not in url_map:
         return False
-    ws, row_num = url_map[article_url]
+    ws, row_num, brief_col = url_map[article_url]
     try:
-        ws.update_cell(row_num, INTELLIGENCE_BRIEF_COL_INDEX + 1, brief_text)
+        ws.update_cell(row_num, brief_col, brief_text)
         return True
     except Exception as e:
         print(f"   -> Sheet update failed for row {row_num}: {e}")
