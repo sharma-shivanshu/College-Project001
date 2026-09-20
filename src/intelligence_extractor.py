@@ -120,8 +120,8 @@ def extract_intelligence(scraped_text):
         except Exception as e:
             err = str(e).lower()
             if any(x in err for x in ["429", "rate limit", "tokens", "quota"]):
-                print(f"   -> Rate limited on {model_name}. Trying next model...")
-                time.sleep(2)
+                print(f"   -> Rate limited on {model_name}. Error: {str(e)[:200]}")
+                time.sleep(5) # Increase sleep to 5s between models
                 continue
             elif "400" in err or "decommission" in err:
                 print(f"   -> Model {model_name} unavailable. Trying next...")

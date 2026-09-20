@@ -238,7 +238,7 @@ def run_intelligence_pipeline():
             print(f"   -> Supabase ✓ | Sheets: URL not in recent tabs | Model: {model_used}")
 
         success_count += 1
-        time.sleep(1.5)
+        time.sleep(10)
 
 
     print(f"\n{'=' * 65}")
