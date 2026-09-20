@@ -48,17 +48,17 @@ def append_to_sheet(raw_spreadsheet_id, data_row):
             worksheet = spreadsheet.worksheet(today_str)
         except gspread.exceptions.WorksheetNotFound:
             print(f"   -> Creating new tab for {today_str}...")
-            worksheet = spreadsheet.add_worksheet(title=today_str, rows=1000, cols=16)
+            worksheet = spreadsheet.add_worksheet(title=today_str, rows=1000, cols=17)
             
             headers = [
-                "Post Date", "Post Time", "Link", "Source", "Activity Type", 
+                "ID", "Post Date", "Post Time", "Link", "Source", "Activity Type", 
                 "Political Relevance", "District", "Constituency", "Local Geography", 
                 "Parties Involved", "Key Leaders", "Keywords", "Summary", "Scraped Content"
             ]
             worksheet.append_row(headers, table_range="A1")
             
             worksheet.freeze(rows=1)
-            worksheet.format("A1:N1", {
+            worksheet.format("A1:P1", {
                 "backgroundColor": {"red": 0.9, "green": 0.9, "blue": 0.9},
                 "textFormat": {"bold": True, "fontSize": 11}
             })

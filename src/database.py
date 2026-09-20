@@ -90,7 +90,9 @@ def save_article(record):
     }
 
     try:
-        client.table("articles").insert(enriched).execute()
+        res = client.table("articles").insert(enriched).execute()
+        if res.data and len(res.data) > 0:
+            return res.data[0].get('id')
         return True
     except Exception as e:
         print(f"Failed to save to Supabase: {e}")

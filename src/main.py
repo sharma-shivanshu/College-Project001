@@ -156,9 +156,13 @@ def run_pipeline():
             "sheet_synced":        True,
             "raw_json":            extracted_data
         }
-        save_article(record)
+        article_id = save_article(record)
+        # If save failed, don't append to sheet to maintain sync
+        if not article_id:
+            continue
 
         row = [
+            str(article_id) if isinstance(article_id, str) else "",
             post_date,          # A: Real publish date from article metadata
             post_time,          # B: When our pipeline scraped it
             url,
