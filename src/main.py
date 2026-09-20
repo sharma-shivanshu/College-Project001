@@ -126,7 +126,7 @@ def run_pipeline():
             continue
 
         # ── Scrape ──────────────────────────────────────────────────
-        text = scrape_heavy_article(url)
+        text, publish_date = scrape_heavy_article(url)
         if not text or len(text) < 50:
             continue
 
@@ -141,6 +141,9 @@ def run_pipeline():
 
         now = datetime.now()
         district = extracted_data.get("district") or meta.get("district", "")
+        # Use article's real publish date; fall back to today if not found
+        post_date = publish_date if publish_date else now.strftime("%Y-%m-%d")
+        post_time = now.strftime("%H:%M:%S")  # when our pipeline scraped it
 
         record = {
             "article_url":         url,
@@ -148,16 +151,16 @@ def run_pipeline():
             "activity_type":       str(extracted_data.get("activity_type", "other")),
             "electoral_relevance": str(extracted_data.get("electoral_relevance", "none")),
             "summary":             extracted_data.get("summary", ""),
-            "scraped_text":        text[:20000],   # stored in Supabase for future re-processing
-            "published_date":      now.strftime("%Y-%m-%d"),
+            "scraped_text":        text[:20000],
+            "published_date":      post_date,
             "sheet_synced":        True,
             "raw_json":            extracted_data
         }
         save_article(record)
 
         row = [
-            now.strftime("%Y-%m-%d"),
-            now.strftime("%H:%M:%S"),
+            post_date,          # A: Real publish date from article metadata
+            post_time,          # B: When our pipeline scraped it
             url,
             source,
             record["activity_type"],
@@ -169,7 +172,7 @@ def run_pipeline():
             ", ".join(extracted_data.get("key_leaders", [])),
             ", ".join(extracted_data.get("keywords", [])),
             record["summary"],
-            text[:10000]
+            text[:10000]        # N: Raw scraped text for reference
         ]
         append_to_sheet(SPREADSHEET_ID, row)
 
