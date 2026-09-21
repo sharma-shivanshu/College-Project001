@@ -29,7 +29,7 @@ except ImportError:
     SHEETS_AVAILABLE = False
 
 SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "1MlBvANu6ePWqQSWT9GlQbG0ZhrIm8_yvGTiE1_KeztE")
-BATCH_SIZE = 25
+BATCH_SIZE = 75
 INTELLIGENCE_BRIEF_COL_LETTER = "O"  # Column O in Sheets
 INTELLIGENCE_BRIEF_COL_INDEX = 15    # 0-indexed = column 15 = O
 
