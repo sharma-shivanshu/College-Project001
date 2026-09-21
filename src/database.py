@@ -1,9 +1,5 @@
 import os
 from supabase import create_client
-from dotenv import load_dotenv
-load_dotenv('/Users/shivanshusharma/Documents/AGY_Projects/College-Project001/.env')
-
-
 def get_supabase_client():
     url = os.environ.get("SUPABASE_URL")
     key = os.environ.get("SUPABASE_KEY")
