@@ -1,19 +1,23 @@
 """
-LOCAL KILOCODE EXTRACTOR
+LOCAL EXTRACTOR
 Run this file strictly on your local laptop (e.g., inside VS Code).
-It reads pending articles from Supabase, asks your local Kilocode/Ollama model 
-to extract the JSON, and then syncs to Google Sheets!
+It reads pending articles from Supabase, asks an LLM to extract the JSON, 
+and then syncs to Google Sheets!
 """
 import os
 import json
 import requests
+from dotenv import load_dotenv
+
+# Load environment variables from local .env file
+load_dotenv()
+
 from database import get_supabase_client
 from sheets_sync import append_to_sheet
 
-# Set your local API endpoint here (e.g., standard OpenAI compatible endpoint provided by local extensions)
-LOCAL_LLM_URL = "http://localhost:11434/v1/chat/completions" # Change this to Kilocode's endpoint if different
-MODEL_NAME = "your-favourite-hindi-model" 
-SPREADSHEET_ID = os.environ.get("SPREADSHEET_ID", "YOUR_SPREADSHEET_ID_HERE")
+# If you have a local Ollama server running, it will use this:
+LOCAL_LLM_URL = "http://localhost:11434/api/generate"
+MODEL_NAME = "llama3" # Or whatever model you downloaded in Ollama
 
 SCHEMA = '''{
   "activity_type": ["rally","statement","government_scheme","inauguration","protest","appointment","election_event","other"],
@@ -25,12 +29,15 @@ SCHEMA = '''{
 def run_local_extraction():
     print("Connecting to Supabase...")
     supabase = get_supabase_client()
-    
+    if not supabase:
+        print("Failed to connect to Supabase. Check .env file.")
+        return
+        
     # Get all articles waiting for local extraction
     response = supabase.table("articles").select("*").eq("processing_status", "pending_local").execute()
     pending_articles = response.data
     
-    print(f"Found {len(pending_articles)} articles waiting for local Kilocode extraction.")
+    print(f"Found {len(pending_articles)} articles waiting for extraction.")
     
     for article in pending_articles:
         url = article['article_url']
@@ -39,20 +46,22 @@ def run_local_extraction():
         
         prompt = f"Analyze this political article. Extract EXACT JSON matching this schema:\n{SCHEMA}\n\nTEXT:\n{text[:6000]}"
         
-        # NOTE: You will need to adjust the payload structure below based on how Kilocode accepts API requests.
         payload = {
             "model": MODEL_NAME,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.1
+            "prompt": prompt,
+            "stream": False,
+            "format": "json"
         }
         
         try:
-            # 1. Ask Kilocode to extract JSON
-            # resp = requests.post(LOCAL_LLM_URL, json=payload)
-            # result = resp.json()['choices'][0]['message']['content']
-            
-            # (MOCK RESULT FOR NOW until Kilocode endpoint is confirmed)
-            result = '{"summary": "Local extraction pending actual Kilocode API structure."}'
+            # 1. Ask Local LLM to extract JSON
+            resp = requests.post(LOCAL_LLM_URL, json=payload, timeout=120)
+            if resp.status_code == 200:
+                result = resp.json().get('response', '{}')
+            else:
+                print(f"LLM API Error: {resp.status_code} - Is your local AI server running?")
+                continue
+                
             parsed = json.loads(result)
             
             # 2. Update Supabase
@@ -66,12 +75,12 @@ def run_local_extraction():
             
             # 3. Update Google Sheets
             row = [url, article["source"], parsed.get("activity_type", "other"), parsed.get("electoral_relevance", "none"), parsed.get("summary", "")]
-            append_to_sheet(SPREADSHEET_ID, row)
+            append_to_sheet(os.environ.get("SPREADSHEET_ID"), row)
             
             print("Successfully processed locally and synced!")
             
         except Exception as e:
-            print(f"Failed to process locally: {e}")
+            print(f"Failed to process locally: {e}. Make sure Ollama/Kilocode API server is running on {LOCAL_LLM_URL}")
 
 if __name__ == "__main__":
     run_local_extraction()
