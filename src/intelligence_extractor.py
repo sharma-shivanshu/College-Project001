@@ -83,7 +83,7 @@ def call_gemini(prompt_text):
     last_error = ""
     
     for idx, api_key in enumerate(api_keys):
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
         
         payload = {
             "contents": [{"parts": [{"text": UNIVERSAL_PROMPT + "\n\nARTICLE:\n" + prompt_text}]}],
@@ -141,7 +141,7 @@ def call_groq(prompt_text):
     if not api_key: return None, "Missing GROQ_API_KEY"
     
     client = Groq(api_key=api_key)
-    models = ["openai/gpt-oss-120b", "qwen/qwen3.8-27b", "openai/gpt-oss-20b", "groq/compound"]
+    models = ["llama3-8b-8192", "mixtral-8x7b-32768", "llama3-70b-8192"]
     
     for model_name in models:
         try:
@@ -175,7 +175,7 @@ def extract_intelligence(scraped_text):
     if result:
         print("   -> Intelligence extracted via Gemini")
         brief_text = result.get("brief", "")
-        model_used = "gemini-2.5-flash"
+        model_used = "gemini-1.5-flash"
     else:
         print(f"   -> Gemini failed: {error}")
     

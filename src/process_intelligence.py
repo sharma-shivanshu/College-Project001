@@ -156,7 +156,7 @@ def mark_article_done(client, article_url, intelligence_json, brief_text):
 
 def mark_article_error(client, article_url, current_retry_count):
     new_count = (current_retry_count or 0) + 1
-    status = "intelligence_error" if new_count >= 3 else "done"
+    status = "intelligence_error" if new_count >= 3 else "scraped"
     try:
         client.table("articles").update({
             "retry_count": new_count,
