@@ -75,27 +75,39 @@ def parse_json_response(text):
     return json.loads(text.strip())
 
 def call_gemini(prompt_text):
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key: return None, "Missing GEMINI_API_KEY"
+    api_keys_str = os.environ.get("GEMINI_API_KEYS")
+    if not api_keys_str: return None, "Missing GEMINI_API_KEYS"
     
-    # Using gemini-2.5-flash as the standard fast/free model for 2026
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    api_keys = [k.strip() for k in api_keys_str.split(",") if k.strip()]
+    last_error = ""
     
-    payload = {
-        "contents": [{"parts": [{"text": UNIVERSAL_PROMPT + "\n\nARTICLE:\n" + prompt_text}]}],
-        "generationConfig": {"responseMimeType": "application/json"}
-    }
-    
-    resp = requests.post(url, json=payload)
-    if resp.status_code != 200:
-        return None, f"Gemini API Error: {resp.text}"
+    for idx, api_key in enumerate(api_keys):
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
         
-    data = resp.json()
-    try:
-        raw_text = data['candidates'][0]['content']['parts'][0]['text']
-        return parse_json_response(raw_text), None
-    except Exception as e:
-        return None, f"Gemini Parsing Error: {str(e)}"
+        payload = {
+            "contents": [{"parts": [{"text": UNIVERSAL_PROMPT + "\n\nARTICLE:\n" + prompt_text}]}],
+            "generationConfig": {"responseMimeType": "application/json"}
+        }
+        
+        resp = requests.post(url, json=payload)
+        if resp.status_code == 200:
+            data = resp.json()
+            try:
+                raw_text = data['candidates'][0]['content']['parts'][0]['text']
+                return parse_json_response(raw_text), None
+            except Exception as e:
+                return None, f"Gemini Parsing Error: {str(e)}"
+        
+        last_error = resp.text
+        if "429" in str(resp.status_code) or "quota" in resp.text.lower():
+            print(f"   -> Gemini Key {idx + 1} rate limited. Rotating to next key...")
+            time.sleep(2)
+            continue
+        else:
+            # If it's a 400 Bad Request or similar, break immediately
+            break
+            
+    return None, f"Gemini API Error (All keys exhausted or fatal error): {last_error}"
 
 def call_cloudflare(prompt_text):
     account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
