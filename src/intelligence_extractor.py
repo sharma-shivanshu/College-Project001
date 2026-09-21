@@ -1,27 +1,13 @@
 """
 Universal Political Intelligence Extractor
-Handles 12+ event types: rally, press conference, government scheme, protest,
-appointment, alliance talks, election prep, condolence, inauguration, legal/court,
-caste outreach, party internal matters.
-
-Uses Groq with 5-model fallback. Produces structured JSON + English paraphrase brief.
-The brief is an original AI-generated work (fact extraction + paraphrase), NOT a
-translation or summary — fully legal under Indian and international IP law.
+Multi-Provider Fallback: Gemini -> Cloudflare -> Groq
 """
 
 import os
 import json
 import time
 import re
-from groq import Groq
-
-FALLBACK_MODELS = [
-    "openai/gpt-oss-120b",    # 120B — primary, best quality
-    "qwen/qwen3.8-27b",       # 27B — excellent Hindi comprehension
-    "openai/gpt-oss-20b",     # 20B — fast, independent quota
-    "groq/compound",           # Groq native, independent quota
-    "groq/compound-mini",      # Last resort, independent quota
-]
+import requests
 
 UNIVERSAL_PROMPT = """You are a senior political intelligence analyst covering Uttar Pradesh elections (2027).
 
@@ -68,67 +54,127 @@ Return ONLY a valid JSON object matching this schema exactly:
     "towards_bsp": "positive|negative|neutral",
     "towards_inc": "positive|negative|neutral"
   },
-  "brief": "3-4 sentence English intelligence brief. Must be YOUR OWN paraphrase covering: what happened, who was involved (with designations), where, key claims or significance. Do NOT start with 'The article says'. Write as an analyst briefing a minister."
+  "brief": "3-4 sentence English intelligence brief. Must be YOUR OWN paraphrase covering: what happened, who was involved (with designations), where, key claims or significance. Write as an analyst briefing a minister."
 }
-
-ARTICLE:
 """
-
-
-def get_groq_client():
-    api_key = os.environ.get("GROQ_API_KEY")
-    if not api_key:
-        return None
-    return Groq(api_key=api_key)
-
 
 def clean_text(text):
     text = re.sub(r'<[^>]+>', '', text)
     text = re.sub(r'\s+', ' ', text)
     return text.strip()
 
+def parse_json_response(text):
+    """Clean markdown formatting if models wrap JSON in code blocks"""
+    text = text.strip()
+    if text.startswith("```json"):
+        text = text[7:]
+    if text.startswith("```"):
+        text = text[3:]
+    if text.endswith("```"):
+        text = text[:-3]
+    return json.loads(text.strip())
 
-def extract_intelligence(scraped_text):
-    """
-    Runs the universal intelligence extraction prompt against all fallback models.
-    Returns (intelligence_json, brief_text, model_used) or (None, None, None) on full failure.
-    """
-    client = get_groq_client()
-    if not client:
-        return None, None, None
+def call_gemini(prompt_text):
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key: return None, "Missing GEMINI_API_KEY"
+    
+    # Using gemini-2.5-flash as the standard fast/free model for 2026
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    
+    payload = {
+        "contents": [{"parts": [{"text": UNIVERSAL_PROMPT + "\n\nARTICLE:\n" + prompt_text}]}],
+        "generationConfig": {"responseMimeType": "application/json"}
+    }
+    
+    resp = requests.post(url, json=payload)
+    if resp.status_code != 200:
+        return None, f"Gemini API Error: {resp.text}"
+        
+    data = resp.json()
+    try:
+        raw_text = data['candidates'][0]['content']['parts'][0]['text']
+        return parse_json_response(raw_text), None
+    except Exception as e:
+        return None, f"Gemini Parsing Error: {str(e)}"
 
-    cleaned = clean_text(scraped_text)
-    # Use up to 3000 chars — enough for all key facts, well within token budget
-    truncated = cleaned[:3000]
-    full_prompt = UNIVERSAL_PROMPT + truncated
+def call_cloudflare(prompt_text):
+    account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
+    api_token = os.environ.get("CLOUDFLARE_API_TOKEN")
+    if not account_id or not api_token: return None, "Missing Cloudflare Credentials"
 
-    for model_name in FALLBACK_MODELS:
+    url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/@cf/meta/llama-3.1-8b-instruct"
+    headers = {"Authorization": f"Bearer {api_token}"}
+    
+    payload = {
+        "messages": [
+            {"role": "system", "content": UNIVERSAL_PROMPT},
+            {"role": "user", "content": f"Extract intelligence from this article in JSON format only:\n\n{prompt_text}"}
+        ]
+    }
+    
+    resp = requests.post(url, headers=headers, json=payload)
+    if resp.status_code != 200:
+        return None, f"Cloudflare API Error: {resp.text}"
+        
+    try:
+        raw_text = resp.json()['result']['response']
+        return parse_json_response(raw_text), None
+    except Exception as e:
+        return None, f"Cloudflare Parsing Error: {str(e)}"
+
+def call_groq(prompt_text):
+    from groq import Groq
+    api_key = os.environ.get("GROQ_API_KEY")
+    if not api_key: return None, "Missing GROQ_API_KEY"
+    
+    client = Groq(api_key=api_key)
+    models = ["openai/gpt-oss-120b", "qwen/qwen3.8-27b", "openai/gpt-oss-20b", "groq/compound"]
+    
+    for model_name in models:
         try:
             completion = client.chat.completions.create(
                 model=model_name,
-                messages=[{"role": "user", "content": full_prompt}],
+                messages=[{"role": "user", "content": UNIVERSAL_PROMPT + "\n\nARTICLE:\n" + prompt_text}],
                 temperature=0.1,
                 response_format={"type": "json_object"},
                 max_tokens=1200
             )
             raw = completion.choices[0].message.content.strip()
-            parsed = json.loads(raw)
-            brief = parsed.get("brief", "")
-            print(f"   -> Intelligence extracted via {model_name}")
-            return parsed, brief, model_name
-
+            return parse_json_response(raw), model_name
         except Exception as e:
-            err = str(e).lower()
-            if any(x in err for x in ["429", "rate limit", "tokens", "quota"]):
-                print(f"   -> Rate limited on {model_name}. Error: {str(e)[:200]}")
-                time.sleep(5) # Increase sleep to 5s between models
+            if "429" in str(e):
+                time.sleep(2)
                 continue
-            elif "400" in err or "decommission" in err:
-                print(f"   -> Model {model_name} unavailable. Trying next...")
-                continue
-            else:
-                print(f"   -> Extraction error on {model_name}: {e}")
-                continue
+            return None, f"Groq Error: {str(e)}"
+            
+    return None, "All Groq models rate limited"
 
-    print("   -> CRITICAL: All models exhausted for this article.")
+def extract_intelligence(scraped_text):
+    cleaned = clean_text(scraped_text)[:3000]
+    
+    # 1. Try Gemini First (Best free limits: 1500 RPD)
+    print("   -> Trying Gemini...")
+    result, error = call_gemini(cleaned)
+    if result:
+        print("   -> Intelligence extracted via Gemini")
+        return result, result.get("brief", ""), "gemini-2.5-flash"
+    print(f"   -> Gemini failed: {error}")
+    
+    # 2. Try Cloudflare Fallback (10,000 neurons/day)
+    print("   -> Trying Cloudflare Workers AI...")
+    result, error = call_cloudflare(cleaned)
+    if result:
+        print("   -> Intelligence extracted via Cloudflare")
+        return result, result.get("brief", ""), "cloudflare/llama-3.1-8b"
+    print(f"   -> Cloudflare failed: {error}")
+    
+    # 3. Try Groq Last Resort
+    print("   -> Trying Groq (Last Resort)...")
+    result, groq_model_or_err = call_groq(cleaned)
+    if result:
+        print(f"   -> Intelligence extracted via {groq_model_or_err}")
+        return result, result.get("brief", ""), groq_model_or_err
+    print(f"   -> Groq failed: {groq_model_or_err}")
+    
+    print("   -> CRITICAL: All fallback models exhausted.")
     return None, None, None
