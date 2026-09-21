@@ -32,3 +32,4 @@ jobs:
         SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
       run: |
         python src/main.py
+        python src/process_intelligence.py
