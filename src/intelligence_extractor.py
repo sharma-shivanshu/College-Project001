@@ -8,6 +8,7 @@ import json
 import time
 import re
 import requests
+from geo_lookup import resolve_district
 
 UNIVERSAL_PROMPT = """You are a senior political intelligence analyst covering Uttar Pradesh elections (2027).
 
@@ -164,29 +165,54 @@ def call_groq(prompt_text):
 def extract_intelligence(scraped_text):
     cleaned = clean_text(scraped_text)[:3000]
     
+    result = None
+    brief_text = None
+    model_used = None
+
     # 1. Try Gemini First (Best free limits: 1500 RPD)
     print("   -> Trying Gemini...")
     result, error = call_gemini(cleaned)
     if result:
         print("   -> Intelligence extracted via Gemini")
-        return result, result.get("brief", ""), "gemini-2.5-flash"
-    print(f"   -> Gemini failed: {error}")
+        brief_text = result.get("brief", "")
+        model_used = "gemini-2.5-flash"
+    else:
+        print(f"   -> Gemini failed: {error}")
     
     # 2. Try Cloudflare Fallback (10,000 neurons/day)
-    print("   -> Trying Cloudflare Workers AI...")
-    result, error = call_cloudflare(cleaned)
-    if result:
-        print("   -> Intelligence extracted via Cloudflare")
-        return result, result.get("brief", ""), "cloudflare/llama-3.1-8b"
-    print(f"   -> Cloudflare failed: {error}")
+    if not result:
+        print("   -> Trying Cloudflare Workers AI...")
+        result, error = call_cloudflare(cleaned)
+        if result:
+            print("   -> Intelligence extracted via Cloudflare")
+            brief_text = result.get("brief", "")
+            model_used = "cloudflare/llama-3.1-8b"
+        else:
+            print(f"   -> Cloudflare failed: {error}")
     
     # 3. Try Groq Last Resort
-    print("   -> Trying Groq (Last Resort)...")
-    result, groq_model_or_err = call_groq(cleaned)
-    if result:
-        print(f"   -> Intelligence extracted via {groq_model_or_err}")
-        return result, result.get("brief", ""), groq_model_or_err
-    print(f"   -> Groq failed: {groq_model_or_err}")
+    if not result:
+        print("   -> Trying Groq (Last Resort)...")
+        result, groq_model_or_err = call_groq(cleaned)
+        if result:
+            print(f"   -> Intelligence extracted via {groq_model_or_err}")
+            brief_text = result.get("brief", "")
+            model_used = groq_model_or_err
+        else:
+            print(f"   -> Groq failed: {groq_model_or_err}")
     
-    print("   -> CRITICAL: All fallback models exhausted.")
-    return None, None, None
+    if not result:
+        print("   -> CRITICAL: All fallback models exhausted.")
+        return None, None, None
+        
+    # --- Geo-Resolution Fix ---
+    extracted_district = result.get("location", {}).get("district")
+    if extracted_district:
+        parent_dist, original_sub = resolve_district(extracted_district, cleaned)
+        if parent_dist:
+            result["location"]["district"] = parent_dist
+            # Keep the sub-district as venue/local_geography if not already present
+            if original_sub and not result["location"].get("venue"):
+                result["location"]["venue"] = original_sub
+            
+    return result, brief_text, model_used
