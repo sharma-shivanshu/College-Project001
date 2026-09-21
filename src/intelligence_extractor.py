@@ -65,15 +65,20 @@ def clean_text(text):
     return text.strip()
 
 def parse_json_response(text):
-    """Clean markdown formatting if models wrap JSON in code blocks"""
+    """Clean markdown formatting if models wrap JSON in code blocks or include preamble"""
     text = text.strip()
-    if text.startswith("```json"):
-        text = text[7:]
-    if text.startswith("```"):
-        text = text[3:]
-    if text.endswith("```"):
-        text = text[:-3]
-    return json.loads(text.strip())
+    # Extract only the content between the first { and the last }
+    import re
+    match = re.search(r'\{.*\}', text, re.DOTALL)
+    if match:
+        text = match.group(0)
+    
+    # Try parsing
+    try:
+        return json.loads(text.strip())
+    except json.JSONDecodeError as e:
+        # If it still fails, it's a severe hallucination
+        raise e
 
 def call_gemini(prompt_text):
     api_keys_str = os.environ.get("GEMINI_API_KEYS")
@@ -83,7 +88,7 @@ def call_gemini(prompt_text):
     last_error = ""
     
     for idx, api_key in enumerate(api_keys):
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={api_key}"
         
         payload = {
             "contents": [{"parts": [{"text": UNIVERSAL_PROMPT + "\n\nARTICLE:\n" + prompt_text}]}],
@@ -141,7 +146,7 @@ def call_groq(prompt_text):
     if not api_key: return None, "Missing GROQ_API_KEY"
     
     client = Groq(api_key=api_key)
-    models = ["llama-3.1-8b-instant", "mixtral-8x7b-32768", "llama-3.3-70b-versatile"]
+    models = ["llama-3.3-70b-versatile", "llama3-8b-8192", "mixtral-8x7b-32768"]
     
     for model_name in models:
         try:
