@@ -81,7 +81,7 @@ def save_article(record):
         "parties_involved":  raw.get("parties_involved", []),
         "key_leaders":       raw.get("key_leaders", []),
         "keywords":          raw.get("keywords", []),
-        "sentiment":         raw.get("sentiment_ruling_party"),
+        "sentiment":         raw.get("news_tone"),
         "published_date":    record.get("published_date"),
         "sheet_synced":      record.get("sheet_synced", False),
         "raw_json":          raw,

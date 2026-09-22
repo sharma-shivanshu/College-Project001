@@ -18,7 +18,7 @@ SCHEMA = '''{
   "parties_involved": ["list of standardized party names (e.g. BJP, SP, BSP, INC)"],
   "key_leaders": ["list of major politicians mentioned"],
   "keywords": ["list of 3 to 5 highly relevant political/event tags. Must include party aliases/leaders, do NOT include general terms like 'government' or 'opposition'"],
-  "sentiment_ruling_party": "positive|negative|neutral",
+  "news_tone": "Development|Controversy|Crime & Law|Policy & Politics|Human Interest",
   "summary": "1 sentence max"
 }'''
 

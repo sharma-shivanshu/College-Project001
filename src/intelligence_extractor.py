@@ -16,6 +16,12 @@ Your task: Analyze the article below and extract a structured intelligence brief
 - Extract FACTS only. Do NOT translate verbatim.
 - The "brief" field must be YOUR OWN original 3-4 sentence English paraphrase — not a copy or translation.
 - Cover ALL applicable fields. Use null for anything not mentioned.
+- For "news_tone", classify the article into exactly ONE of these categories based on what the news is ABOUT:
+  * "Development" — infrastructure, schemes, inaugurations, positive governance outcomes
+  * "Controversy" — scams, corruption allegations, party disputes, protests
+  * "Crime & Law" — crime reports, police action, court orders
+  * "Policy & Politics" — elections, party statements, policy announcements
+  * "Human Interest" — community stories, welfare, social issues
 
 Return ONLY a valid JSON object matching this schema exactly:
 
@@ -49,12 +55,7 @@ Return ONLY a valid JSON object matching this schema exactly:
     "vote_count": "e.g. 45000 votes in 2022 or null"
   },
   "electoral_implication": "Why this matters for 2027 UP elections — 1 original sentence",
-  "sentiment": {
-    "towards_bjp": "positive|negative|neutral",
-    "towards_sp": "positive|negative|neutral",
-    "towards_bsp": "positive|negative|neutral",
-    "towards_inc": "positive|negative|neutral"
-  },
+  "news_tone": "Development|Controversy|Crime & Law|Policy & Politics|Human Interest",
   "brief": "3-4 sentence English intelligence brief. Must be YOUR OWN paraphrase covering: what happened, who was involved (with designations), where, key claims or significance. Write as an analyst briefing a minister."
 }
 """
