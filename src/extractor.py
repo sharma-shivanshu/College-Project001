@@ -41,9 +41,9 @@ Use these exact abbreviations for 'parties_involved' if any of their leaders or 
 """
 
 FALLBACK_MODELS = [
-    "llama-3.1-8b-instant",
-    "llama-3.3-70b-versatile",
-    "mixtral-8x7b-32768"
+    "llama3-70b-8192",
+    "llama3-8b-8192",
+    "gemma2-9b-it"
 ]
 
 def clean_text(text):
