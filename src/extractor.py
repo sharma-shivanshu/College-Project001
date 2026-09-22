@@ -12,7 +12,7 @@ def get_groq_client():
 SCHEMA = '''{
   "activity_type": "rally|statement|government_scheme|inauguration|protest|appointment|election_event|other",
   "electoral_relevance": "high|medium|low|none",
-  "district": "Name of the UP district where this occurred, or null",
+  "district": "Name of the UP district. If it affects all of UP, use 'Uttar Pradesh (State)'. If it is national context, use 'National'. Else null",
   "constituency": "Name of specific UP assembly constituency if mentioned, or null",
   "local_geography": "Specific village, block, ward, or tehsil mentioned, or null",
   "parties_involved": ["list of standardized party names (e.g. BJP, SP, BSP, INC)"],
@@ -72,6 +72,7 @@ def extract_entities(text):
             parsed = json.loads(raw)
             return parsed
         except Exception as e:
+            print(f'Groq Error ({model_name}): {e}')
             error_msg = str(e).lower()
             if "429" in error_msg or "rate limit" in error_msg or "tokens" in error_msg:
                 time.sleep(1)
