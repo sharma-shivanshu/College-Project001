@@ -2,12 +2,8 @@ import os
 import json
 import time
 import re
-from groq import Groq
-
-def get_groq_client():
-    api_key = os.environ.get("GROQ_API_KEY")
-    if not api_key: return None
-    return Groq(api_key=api_key)
+import random
+import google.generativeai as genai
 
 SCHEMA = '''{
   "activity_type": "rally|statement|government_scheme|inauguration|protest|appointment|election_event|other",
@@ -40,43 +36,42 @@ Use these exact abbreviations for 'parties_involved' if any of their leaders or 
 - AAP: आप, Aam Aadmi Party, Sanjay Singh
 """
 
-FALLBACK_MODELS = [
-    "llama3-70b-8192",
-    "llama3-8b-8192",
-    "gemma2-9b-it"
-]
-
 def clean_text(text):
     text = re.sub(r'<[^>]+>', '', text)
     text = re.sub(r'\{.*?\}', '', text) 
     return text.strip()
 
 def extract_entities(text):
-    client = get_groq_client()
-    if not client: return None
-        
+    keys_str = os.environ.get("GEMINI_API_KEYS", os.environ.get("GEMINI_API_KEY", ""))
+    if not keys_str: return None
+    
+    keys = [k.strip() for k in keys_str.split(',') if k.strip()]
+    if not keys: return None
+    
+    # Pick a random key for load balancing
+    api_key = random.choice(keys)
+    genai.configure(api_key=api_key)
+    
+    # Use Gemini Flash which is very fast and cheap
+    model = genai.GenerativeModel('gemini-1.5-flash-latest', generation_config={"response_mime_type": "application/json"})
+    
     cleaned_text = clean_text(text)
-    truncated_text = cleaned_text[:1500] 
+    truncated_text = cleaned_text[:3000] # Increased context window since Gemini supports it
     
     prompt = f"Analyze this political article from Uttar Pradesh. Extract data EXACTLY matching this JSON schema. Return ONLY a valid JSON object.\n\nMAPPING RULES:\n{PARTY_MAPPING}\n\nSCHEMA:\n{SCHEMA}\n\nTEXT:\n{truncated_text}"
     
-    for model_name in FALLBACK_MODELS:
-        try:
-            completion = client.chat.completions.create(
-                model=model_name,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-                response_format={"type": "json_object"}
-            )
-            raw = completion.choices[0].message.content.strip()
-            parsed = json.loads(raw)
-            return parsed
-        except Exception as e:
-            print(f'Groq Error ({model_name}): {e}')
-            error_msg = str(e).lower()
-            if "429" in error_msg or "rate limit" in error_msg or "tokens" in error_msg:
-                time.sleep(1)
-                continue
-            else:
-                continue
-    return None
+    try:
+        response = model.generate_content(prompt)
+        raw = response.text.strip()
+        
+        # Strip potential markdown formatting if Gemini includes it despite JSON mime type
+        if raw.startswith("```json"): raw = raw[7:]
+        if raw.startswith("```"): raw = raw[3:]
+        if raw.endswith("```"): raw = raw[:-3]
+        
+        parsed = json.loads(raw.strip())
+        return parsed
+    except Exception as e:
+        print(f"Gemini Extraction Error: {e}")
+        return None
+

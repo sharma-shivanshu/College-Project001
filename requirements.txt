@@ -12,3 +12,5 @@ feedparser==6.0.11
 trafilatura
 htmldate
 requests
+
+google-generativeai
