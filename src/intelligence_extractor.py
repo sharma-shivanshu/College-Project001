@@ -29,7 +29,7 @@ Return ONLY a valid JSON object matching this schema exactly:
   "event_category": "one of: rally|press_conference|government_scheme|protest|dharna|appointment|alliance|election_prep|condolence|inauguration|legal_court|caste_outreach|party_internal|counter_attack|other",
   "date_of_event": "YYYY-MM-DD if mentioned, else null",
   "location": {
-    "district": "UP district name or null",
+    "district": "UP district name. If the news applies to the whole state, use 'Uttar Pradesh (State)'. If it is national news affecting UP, use 'National'. Else null.",
     "constituency": "specific UP assembly constituency or null",
     "venue": "specific place, village, block, stadium, etc. or null"
   },
@@ -58,6 +58,8 @@ Return ONLY a valid JSON object matching this schema exactly:
   "news_tone": "Development|Controversy|Crime & Law|Policy & Politics|Human Interest",
   "brief": "3-4 sentence English intelligence brief. Must be YOUR OWN paraphrase covering: what happened, who was involved (with designations), where, key claims or significance. Write as an analyst briefing a minister."
 }
+
+Ensure you output in JSON format only.
 """
 
 def clean_text(text):
@@ -89,7 +91,7 @@ def call_gemini(prompt_text):
     last_error = ""
     
     for idx, api_key in enumerate(api_keys):
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}"
         
         payload = {
             "contents": [{"parts": [{"text": UNIVERSAL_PROMPT + "\n\nARTICLE:\n" + prompt_text}]}],
@@ -143,30 +145,37 @@ def call_cloudflare(prompt_text):
 
 def call_groq(prompt_text):
     from groq import Groq
+    import time
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key: return None, "Missing GROQ_API_KEY"
     
     client = Groq(api_key=api_key)
-    models = ["llama-3.3-70b-versatile", "llama3-8b-8192", "mixtral-8x7b-32768"]
+    models = ["openai/gpt-oss-20b", "qwen/qwen3.8-27b", "openai/gpt-oss-120b"]
     
+    max_retries = 3
     for model_name in models:
-        try:
-            completion = client.chat.completions.create(
-                model=model_name,
-                messages=[{"role": "user", "content": UNIVERSAL_PROMPT + "\n\nARTICLE:\n" + prompt_text}],
-                temperature=0.1,
-                response_format={"type": "json_object"},
-                max_tokens=1200
-            )
-            raw = completion.choices[0].message.content.strip()
-            return parse_json_response(raw), model_name
-        except Exception as e:
-            if "429" in str(e):
-                time.sleep(2)
-                continue
-            return None, f"Groq Error: {str(e)}"
-            
-    return None, "All Groq models rate limited"
+        retries = 0
+        while retries < max_retries:
+            try:
+                completion = client.chat.completions.create(
+                    model=model_name,
+                    messages=[{"role": "user", "content": UNIVERSAL_PROMPT + "\n\nARTICLE:\n" + prompt_text}],
+                    temperature=0.1,
+                    response_format={"type": "json_object"}
+                )
+                raw = completion.choices[0].message.content.strip()
+                return parse_json_response(raw), model_name
+            except Exception as e:
+                error_msg = str(e).lower()
+                if "429" in error_msg or "rate limit" in error_msg or "tokens" in error_msg:
+                    retries += 1
+                    sleep_time = 5 * (2 ** (retries - 1))
+                    time.sleep(sleep_time)
+                    continue
+                else:
+                    break
+                    
+    return None, "All Groq models failed or rate limited"
 
 def extract_intelligence(scraped_text):
     cleaned = clean_text(scraped_text)[:3000]
