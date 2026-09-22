@@ -1,0 +1,12 @@
+name: Debug Env
+on: [workflow_dispatch]
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Groq Key
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          echo "GROQ_API_KEY length: ${#GROQ_API_KEY}"
+          if [ -z "$GROQ_API_KEY" ]; then echo "KEY IS EMPTY"; else echo "KEY HAS CONTENT"; fi
