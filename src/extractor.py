@@ -2,8 +2,7 @@ import os
 import json
 import time
 import re
-import random
-import google.generativeai as genai
+from groq import Groq
 
 SCHEMA = '''{
   "activity_type": "rally|statement|government_scheme|inauguration|protest|appointment|election_event|other",
@@ -36,42 +35,63 @@ Use these exact abbreviations for 'parties_involved' if any of their leaders or 
 - AAP: आप, Aam Aadmi Party, Sanjay Singh
 """
 
+# Up-to-date 2026 Groq models available for this specific API tier
+FALLBACK_MODELS = [
+    "openai/gpt-oss-20b",
+    "qwen/qwen3.8-27b",
+    "openai/gpt-oss-120b"
+]
+
 def clean_text(text):
     text = re.sub(r'<[^>]+>', '', text)
     text = re.sub(r'\{.*?\}', '', text) 
     return text.strip()
 
-def extract_entities(text):
-    keys_str = os.environ.get("GEMINI_API_KEYS", os.environ.get("GEMINI_API_KEY", ""))
-    if not keys_str: return None
-    
-    keys = [k.strip() for k in keys_str.split(',') if k.strip()]
-    if not keys: return None
-    
-    # Pick a random key for load balancing
-    api_key = random.choice(keys)
-    genai.configure(api_key=api_key)
-    
-    # Use Gemini Flash which is very fast and cheap
-    model = genai.GenerativeModel('gemini-1.5-flash-latest', generation_config={"response_mime_type": "application/json"})
-    
-    cleaned_text = clean_text(text)
-    truncated_text = cleaned_text[:3000] # Increased context window since Gemini supports it
-    
-    prompt = f"Analyze this political article from Uttar Pradesh. Extract data EXACTLY matching this JSON schema. Return ONLY a valid JSON object.\n\nMAPPING RULES:\n{PARTY_MAPPING}\n\nSCHEMA:\n{SCHEMA}\n\nTEXT:\n{truncated_text}"
-    
-    try:
-        response = model.generate_content(prompt)
-        raw = response.text.strip()
-        
-        # Strip potential markdown formatting if Gemini includes it despite JSON mime type
-        if raw.startswith("```json"): raw = raw[7:]
-        if raw.startswith("```"): raw = raw[3:]
-        if raw.endswith("```"): raw = raw[:-3]
-        
-        parsed = json.loads(raw.strip())
-        return parsed
-    except Exception as e:
-        print(f"Gemini Extraction Error: {e}")
+def get_groq_client():
+    api_key = os.environ.get("GROQ_API_KEY")
+    if not api_key: 
+        print("Error: GROQ_API_KEY is not set.")
         return None
+    return Groq(api_key=api_key)
 
+def extract_entities(text):
+    client = get_groq_client()
+    if not client: return None
+        
+    cleaned_text = clean_text(text)
+    # Reduced context to prevent hitting token rate limits too fast (usually 6k TPM)
+    truncated_text = cleaned_text[:2000] 
+    
+    prompt = f"Analyze this political article from Uttar Pradesh. Extract data EXACTLY matching this JSON schema. Return ONLY a valid JSON object. Ensure you output in JSON format.\n\nMAPPING RULES:\n{PARTY_MAPPING}\n\nSCHEMA:\n{SCHEMA}\n\nTEXT:\n{truncated_text}"
+    
+    max_retries = 3
+    
+    for model_name in FALLBACK_MODELS:
+        retries = 0
+        while retries < max_retries:
+            try:
+                completion = client.chat.completions.create(
+                    model=model_name,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.1,
+                    response_format={"type": "json_object"}
+                )
+                raw = completion.choices[0].message.content.strip()
+                parsed = json.loads(raw)
+                return parsed
+            except Exception as e:
+                error_msg = str(e).lower()
+                print(f"Groq Error ({model_name}): {e}")
+                
+                if "429" in error_msg or "rate limit" in error_msg or "tokens" in error_msg:
+                    retries += 1
+                    sleep_time = 5 * (2 ** (retries - 1))  # 5s, 10s, 20s
+                    print(f"Rate limited on {model_name}. Sleeping {sleep_time} seconds before retry {retries}/{max_retries}...")
+                    time.sleep(sleep_time)
+                    continue
+                else:
+                    # Model completely failed (404, 400, etc), break retry loop and try next model
+                    break
+                    
+    print("All models failed or rate limits exceeded max retries.")
+    return None
